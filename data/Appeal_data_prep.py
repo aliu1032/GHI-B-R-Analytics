@@ -20,7 +20,8 @@ import pandas as pd
 #from datetime import datetime
 from data import GetQDXData as QData
 
-prep_file_path = "C:\\Users\\aliu\\Box Sync\\aliu Cloud Drive\\workspace\\Supplement\\"
+#import project_io_config as cfg
+#prep_file_path = "C:\\Users\\aliu\\Box Sync\\aliu Cloud Drive\\workspace\\Supplement\\"
 
 #file_path = "C:\\Users\\aliu\\Box Sync\\aliu Cloud Drive\\Analytics\\Payor Analytics\\May022018\\"
 #refresh = 0

@@ -13,10 +13,13 @@ import pandas as pd
 #import numpy as np
 from datetime import datetime
 
-prep_file_path = "C:\\Users\\aliu\\Box Sync\\aliu Cloud Drive\\workspace\\Supplement\\"
-sql_folder = "C:\\Users\\aliu\\Box Sync\\aliu Cloud Drive\\workspace\\SQL\\"
+import project_io_config as cfg
+#prep_file_path = "C:\\Users\\aliu\\Box Sync\\aliu Cloud Drive\\workspace\\Supplement\\"
+#sql_folder = "C:\\Users\\aliu\\Box Sync\\aliu Cloud Drive\\workspace\\SQL\\"
 
-server = 'ODSProd01'   ## Quadax nightly zip files location
+#server = 'ODSProd01'   ## Quadax nightly zip files location
+server = cfg.QDX_DB_Server
+database = cfg.QDX_DB
 
 #from data import GHI_EDWStage_SQL
 #folder="C:\\Users\\aliu\\Box Sync\\aliu Cloud Drive\\Analytics\\Payor Analytics\\Jan292018\\"
@@ -30,10 +33,10 @@ def appeal_case_status (folder, refresh = 1):
     print ("function : GetQDXData: appeal_case_status :: start :: ",datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
     print ('refresh = ', refresh, '\nfolder is ', folder, "\n\n")
 
-    database = 'Quadax'
+    #database = 'Quadax'
     target = server + '_' + database + '_' + 'QDX_appeal_case_status.txt'
 
-    f = open(sql_folder + 'QDX_appeal.sql')
+    f = open(cfg.sql_folder + 'QDX_appeal.sql')
     tsql = f.read()
     f.close()
    
@@ -71,11 +74,11 @@ def complete_appeal_case(folder, refresh=1):
     print ("function : GetQDXData: complete_appeal_case :: start :: ", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
     print ('refresh = ', refresh, '\nfolder is ', folder, "\n\n")
 
-    database = 'Quadax'
+    #database = 'Quadax'
     target = server + '_' + database + '_' + 'QDX_complete_appeal_case.txt'
     
     ''' Read data '''    
-    f = open(sql_folder + 'QDX_appealSuccess.sql')
+    f = open(cfg.sql_folder + 'QDX_appealSuccess.sql')
     tsql = f.read()
     f.close()
 
@@ -99,7 +102,9 @@ def complete_appeal_case(folder, refresh=1):
     
     for test in list(QDX_GHI_Test_Code.keys()):
         temp = output[(output['appealPH'] == test)].index
-        output.set_value(temp, 'appealPH', QDX_GHI_Test_Code[test])
+        #output.set_value(temp, 'appealPH', QDX_GHI_Test_Code[test])
+        output.loc[temp,'appealPH'] = QDX_GHI_Test_Code[test]
+
     
     for a in ['appealAmtClmRec','appealAmtAplRec']:
         output[a] = pd.to_numeric(output[a])
@@ -131,17 +136,17 @@ def claim_case_status(usage, folder, refresh=1):
     print ("function : GetQDXData: claim_case_status :: start :: ",datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
     print ('usage = ', usage, '\nrefresh = ', refresh, '\nfolder is ', folder, "\n\n")
     
-    database = 'Quadax'
+    #database = 'Quadax'
     target = server + '_' + database + '_' + 'QDX_claim_case_status.txt'
 
     prep_file_name = "QDX_ClaimDataPrep.xlsx"
     
-    prep_note = pd.read_excel(prep_file_path+prep_file_name, sheetname = "QDXCases", skiprows=1, parse_cols = "B,F:I", encoding='utf-8-sig')
+    prep_note = pd.read_excel(cfg.prep_file_path+prep_file_name, sheet_name = "QDXCases", skiprows=1, usecols = "B,F:I", encoding='utf-8-sig')
 #    #rename_columns = dict(zip(prep_note.QDX_stdCaseFile, prep_note.Synonyms))
     data_type = dict(zip(prep_note.QDX_stdCaseFile, prep_note.Type))
     
     ''' Read data '''
-    f = open(sql_folder + 'QDX_cases.sql')
+    f = open(cfg.sql_folder + 'QDX_cases.sql')
     tsql = f.read()
     f.close()
  
@@ -181,21 +186,21 @@ def stdPayment(usage, folder, refresh=0):
     print ("function : GetQDXData: stdPayment :: start ::",datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
     print ('usage = ', usage,'\nrefresh = ', refresh, '\nfolder is ', folder, "\n\n")
 
-    database = 'Quadax'
+    #database = 'Quadax'
     target = server + '_' + database + '_' + 'QDX_stdPayment.txt'
     
     prep_file_name = "QDX_ClaimDataPrep.xlsx"
     
-    Adj_code = pd.read_excel(prep_file_path+prep_file_name, sheetname = "AdjustmentCode", parse_cols="A,C:E,G", encoding='utf-8-sig')
+    Adj_code = pd.read_excel(cfg.prep_file_path+prep_file_name, sheet_name = "AdjustmentCode", usecols="A,C:E,G", encoding='utf-8-sig')
     Adj_code.columns = [cell.strip() for cell in Adj_code.columns]
     
-    pymnt_note = pd.read_excel(prep_file_path+prep_file_name, sheetname = "QDXPayment", skiprows=1, parse_cols = "B:H", encoding='utf-8-sig')
+    pymnt_note = pd.read_excel(cfg.prep_file_path+prep_file_name, sheet_name = "QDXPayment", skiprows=1, usecols = "B:H", encoding='utf-8-sig')
     rename_columns = dict(zip(pymnt_note.QDX_stdPaymentFile, pymnt_note.Synonyms))
     data_type = dict(zip(pymnt_note.QDX_stdPaymentFile, pymnt_note.Type))
 
     ''' Read data '''
     
-    f = open(sql_folder + 'QDX_stdPayment.sql')
+    f = open(cfg.sql_folder + 'QDX_stdPayment.sql')
     tsql = f.read()
     f.close()
     
@@ -225,8 +230,9 @@ def stdPayment(usage, folder, refresh=0):
     QDX_GHI_Test_Code = {'GL':'IBC','GLD':'DCIS','GLC':'Colon','MMR':'MMR','GLP':'Prostate','UNK':'Unknown'}
     for test in list(QDX_GHI_Test_Code.keys()):
         temp = output[(output['Test'] == test)].index
-        output.set_value(temp, 'Test', QDX_GHI_Test_Code[test])
-    
+        #output.set_value(temp, 'Test', QDX_GHI_Test_Code[test])
+        output.loc[temp,'Test'] = QDX_GHI_Test_Code[test]
+
 
     # Remove Allowable, Deductible and Coinsurance from Adjustment Lines
 #    a = output.TXNType.isin(['AC','AD'])
@@ -309,16 +315,17 @@ def stdClaim(usage, folder, refresh=0):
     print ("function : GetQDXData: stdClaim :: start :: ",datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
     print ('usage = ', usage,'\nrefresh = ', refresh, '\nfolder is ', folder, "\n\n")
 
-    database = 'Quadax'
+    #database = 'Quadax'
     target = server + '_' + database + '_' + 'QDX_stdClaimFile.txt'
 
     prep_file_name = "QDX_ClaimDataPrep.xlsx"
-
-    claim_note = pd.read_excel(prep_file_path+prep_file_name, sheetname = "QDXClaim", skiprows=1, encoding='utf-8-sig')
+#pandas 0.20 use sheetname
+#pandas 0.23 use sheet_name
+    claim_note = pd.read_excel(cfg.prep_file_path+prep_file_name, sheet_name = "QDXClaim", skiprows=1, encoding='utf-8-sig')
     rename_columns = dict(zip(claim_note.QDX_stdClaimFile, claim_note.Synonyms))
     data_type = dict(zip(claim_note.QDX_stdClaimFile, claim_note.Type))
        
-    f = open(sql_folder + 'QDX_stdClaim.sql')
+    f = open(cfg.sql_folder + 'QDX_stdClaim.sql')
     tsql = f.read()
     f.close()
     
@@ -345,8 +352,9 @@ def stdClaim(usage, folder, refresh=0):
     QDX_GHI_Test_Code = {'GL':'IBC','GLD':'DCIS','GLC':'Colon','MMR':'MMR','GLP':'Prostate','UNK':'Unknown'}
     for test in list(QDX_GHI_Test_Code.keys()):
         temp = output[(output['Test'] == test)].index
-        output.set_value(temp, 'Test', QDX_GHI_Test_Code[test])
-    
+        #output.set_value(temp, 'Test', QDX_GHI_Test_Code[test])
+        output.loc[temp,'Test'] = QDX_GHI_Test_Code[test]
+        
     output.OLIDOS = pd.to_datetime(output.OLIDOS, format = "%Y%m%d")
     output.TXNDate = pd.to_datetime(output.TXNDate, format = "%Y%m%d")
     
@@ -416,11 +424,13 @@ def workListRecs(usage, folder, refresh=0):
 
     prep_file_name = "QDX_ClaimDataPrep.xlsx"
 
-    workList_note = pd.read_excel(prep_file_path+prep_file_name, sheetname = "QDXWorkList", skiprows=1, parse_cols="B:F", encoding='utf-8-sig')
+    #workList_note = pd.read_excel(prep_file_path+prep_file_name, sheet_name = "QDXWorkList", skiprows=1, parse_cols="B:F", encoding='utf-8-sig')
+    workList_note = pd.read_excel(cfg.prep_file_path+prep_file_name, sheet_name = "QDXWorkList", skiprows=1, usecols="B:F", encoding='utf-8-sig')
+
     rename_columns = dict(zip(workList_note.workListsRecs, workList_note.Synonyms))
     data_type = dict(zip(workList_note.workListsRecs, workList_note.Type))
     select_columns = workList_note[(workList_note.WO_Condition == 1)]['Synonyms']
-    condition_code = pd.read_excel(prep_file_path+prep_file_name, sheetname = "ConditionCode", parse_cols="A:C", encoding='utf-8-sig')
+    condition_code = pd.read_excel(cfg.prep_file_path+prep_file_name, sheet_name = "ConditionCode", usecols="A:C", encoding='utf-8-sig')
     
     file_name="workListRecs.txt"
     folder = "C:\\Users\\aliu\\Box Sync\\aliu Cloud Drive\\Analytics\\Payor Analytics\\QDX USD-Jul12\\"
@@ -448,10 +458,10 @@ def priorAuth(usage, folder, refresh=0):
     print ("function : GetQDXData: priorAuth :: start :: ",datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
     print ('usage = ', usage,'\nrefresh = ', refresh, '\nfolder is ', folder, "\n\n")
     
-    database = 'Quadax'
+    #database = 'Quadax'
     target = server + '_' + database + '_' + 'priorAuth.txt'
     
-    f = open(sql_folder + 'QDX_priorAuth.sql')
+    f = open(cfg.sql_folder + 'QDX_priorAuth.sql')
     tsql = f.read()
     f.close()
 

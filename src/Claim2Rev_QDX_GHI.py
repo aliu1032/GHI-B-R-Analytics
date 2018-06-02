@@ -1,6 +1,7 @@
 '''
 @author: aliu
 
+
 Generate the Claim2Rev report.
 Purpose of the report is to track for Test Delivered OLI, the billed amount, payment, adjustment, current outstanding and the revenue recognized for the OLI.
 Using the QDX data for Payment and Adjustment due to the issues with GHI data listed in Constraints
@@ -52,32 +53,32 @@ import pandas as pd
 #import numpy as np
 from datetime import datetime
 
-
-input_file_path = "C:\\Users\\aliu\\Box Sync\\aliu Cloud Drive\\Analytics\\Payor Analytics\\May092018\\"
-output_file_path = "C:\\Users\\aliu\\Box Sync\\aliu Cloud Drive\\Analytics\\Payor Analytics\\May092018\\"
-prep_file_path = "C:\\Users\\aliu\\Box Sync\\aliu Cloud Drive\\workspace\\Supplement\\"
+import project_io_config as cfg
+refresh = cfg.refresh
+#input_file_path = "C:\\Users\\aliu\\Box Sync\\aliu Cloud Drive\\Analytics\\Payor Analytics\\May092018\\"
+#output_file_path = "C:\\Users\\aliu\\Box Sync\\aliu Cloud Drive\\Analytics\\Payor Analytics\\May092018\\"
+#prep_file_path = "C:\\Users\\aliu\\Box Sync\\aliu Cloud Drive\\workspace\\Supplement\\"
 
 print ('Claim2Rev_QDX_GHI :: start :: ',datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-refresh = 0
+
 
 ###############################################################
 #   Read QDX Claim and Payment (Receipt) data                 #
 ###############################################################
 
 from data import GetQDXData as QData
-Claim_bill = QData.stdClaim('Claim2Rev', input_file_path, refresh)
-Claim_pymnt = QData.stdPayment('Claim2Rev', input_file_path, refresh)
-Claim_case = QData.claim_case_status('QDXClaim_CaseStatus', input_file_path, refresh)
-priorAuth = QData.priorAuth('Claim2Rev', input_file_path, refresh)
-
+Claim_bill = QData.stdClaim('Claim2Rev', cfg.input_file_path, refresh)
+Claim_pymnt = QData.stdPayment('Claim2Rev', cfg.input_file_path, refresh)
+Claim_case = QData.claim_case_status('QDXClaim_CaseStatus', cfg.input_file_path, refresh)
+priorAuth = QData.priorAuth('Claim2Rev', cfg.input_file_path, refresh)
 
 ###############################################################
 #   Read GHI Revenue Data and OrderLineDetail and Appeal Data #
 ############################################################### 
 
 from data import GetGHIData as GData
-Revenue_data = GData.revenue_data('Claim2Rev', input_file_path, refresh)
-OLI_data = GData.OLI_detail('Claim2Rev', input_file_path, refresh)
+Revenue_data = GData.revenue_data('Claim2Rev', cfg.input_file_path, refresh)
+OLI_data = GData.OLI_detail('Claim2Rev', cfg.input_file_path, refresh)
 #OLI_utilization = GData.OLI_detail('Utilization', input_file_path, 0)
 
 ###############################################################
@@ -85,7 +86,7 @@ OLI_data = GData.OLI_detail('Claim2Rev', input_file_path, refresh)
 ###############################################################
 
 from data import Appeal_data_prep
-appeal_data = Appeal_data_prep.make_appeal_data(input_file_path, refresh)
+appeal_data = Appeal_data_prep.make_appeal_data(cfg.input_file_path, refresh)
 appeal_journal = appeal_data['appeal']
 ClaimTicket_appeal_wide = appeal_data['ClaimTicket_appeal_wide']
 
@@ -115,10 +116,32 @@ OLI_data.rename(columns = {'CurrentTicketNumber':'BI_CurrentTicketNumber'}, inpl
 # first group by OLIID + Ticket Number and get the max case number
 # then group by OLIID to get the max Ticket Number
 
-temp = Claim_bill.groupby(['OLIID','TicketNumber']).agg({'CaseNumber':'idxmax'}).CaseNumber
-temp1 = Claim_bill.loc[temp][['OLIID','TicketNumber','CaseNumber','TXNDate']]
+#### https://www.tutorialspoint.com/python_pandas/python_pandas_groupby.htm
+
+##this works with 0.20 and not in 0.23
+#temp = Claim_bill.groupby(['OLIID','TicketNumber']).agg({'CaseNumber':'idxmax'})  # this return a dataframe with ['OLIID','TicketNumber' as the index)
+
+#temp2 = Claim_bill.groupby(['OLIID','TicketNumber']) #return a DataFrameGroupby
+#temp.groups['OL000605423','627308']
+#temp.groups['OL000605423','627308'].values
+#Claim_bill.loc[temp.groups['OL000605423','627308']]
+
+temp3 = Claim_bill.groupby(['OLIID','TicketNumber'])['CaseNumber']  # this return a SeriesGroupBy with CaseNumber
+#b = temp3.apply(lambda x : x.values.argmax()) #iterate each group, return the index of the max value of the series
+#c = temp3.apply(lambda x : x.values[x.values.argmax()]) # iterate each group, return the values of the max value of the series, this is the case number
+d = temp3.apply(lambda x : x.keys()[x.values.argmax()]) # iterate each group, return the index of the max value of the series, this is the db index number
+
+#OL001099336  938752          1152226
+#Claim_bill[Claim_bill.OLIID=='OL000605423'][['OLIID','TicketNumber','CaseNumber']]
+#OLIID TicketNumber CaseNumber
+#301659  OL000605423       627308     811520
+#301660  OL000605423       627308     938592
+#301964  OL000605423       627400     817204
+
+temp1 = Claim_bill.loc[d][['OLIID','TicketNumber','CaseNumber','TXNDate']]
 
 temp2 = temp1.groupby(['OLIID']).agg({'TXNDate':'idxmax'}).TXNDate
+
 Current_ticket = Claim_bill.loc[temp2][['OLIID','TicketNumber', 'CaseNumber',
                                                    'BillingCaseStatusSummary1', 'BillingCaseStatusSummary2',
                                                    'BillingCaseStatusCode', 'BillingCaseStatus']]
@@ -224,11 +247,11 @@ aggregations = {
 ### Calculate the revenue number per group: OLIID, the index will become OLIID
 Summarized_Revenue = Revenue_data.groupby(['OLIID']).agg(aggregations)
 Summarized_Revenue.columns = columns = ['_'.join(col).strip() for col in Summarized_Revenue.columns.values] # flatten the multilevel column name
-Summarized_Revenue.columns = [['Revenue','AccrualRevenue','CashRevenue',
+Summarized_Revenue.columns = ['Revenue','AccrualRevenue','CashRevenue',
                                  'USDRevenue', 'USDAccrualRevenue', 'USDCashRevenue',
                                  'ClaimPeriodDate',
-                                 'AccountingPeriodCnt', 'AccountingPeriodDate_init','AccountingPeriodDate_last']]
-Summarized_Revenue = Summarized_Revenue.reset_index()
+                                 'AccountingPeriodCnt', 'AccountingPeriodDate_init','AccountingPeriodDate_last']
+Summarized_Revenue.reset_index(inplace=True)
 
 # get the OLI detail from the last show accounting period record 
 temp = Revenue_data.groupby(['OLIID']).agg({'AccountingPeriodDate':'idxmax'})
@@ -249,7 +272,8 @@ print ('Claim2Rev_QDX_GHI :: Aggregate Bill, Payment, Adjustment numbers per OLI
 ## Reverse the Amt Received and Amt Adjust sign
 temp = ['ClmAmtRec','ClmAmtAdj']
 for a in temp:
-    Claim_bill.loc[(Claim_bill[a] != 0.0),a] = Claim_bill.loc[(Claim_bill[a] != 0.0),a] * -1
+    Claim_bill.loc[Claim_bill[a] != 0.0, a].apply(lambda x : x * -1)
+    #Claim_bill.loc[Claim_bill[a] != 0.0, a] = Claim_bill.loc[Claim_bill[a] != 0.0, a] * -1
 
 aggregations = {
     'TXNAmount': 'sum',
@@ -259,7 +283,7 @@ aggregations = {
     }
 
 Summarized_Claim = Claim_bill.groupby(['OLIID']).agg(aggregations)
-Summarized_Claim.columns = [['Charge','ClmAmtRec','ClmAmtAdj','Total Outstanding']]
+Summarized_Claim.columns = ['Charge','ClmAmtRec','ClmAmtAdj','Total Outstanding']
 
 ########################################################################################
 #   Roll up the QDX stdPayment information to OLI level                                #
@@ -290,17 +314,17 @@ aggregations = {
 ''' Calculate the Payor Amount '''
 Summarized_PADC = Claim_pymnt[(Claim_pymnt.TXNType=='RI')].groupby(['OLIID']).agg(aggregations)
 Summarized_PADC.columns = columns = ['_'.join(col).strip() for col in Summarized_PADC.columns.values] # flatten the multilevel column name
-Summarized_PADC.columns = [['PayorPaid']]
+Summarized_PADC.columns = ['PayorPaid']
 #Summarized_PADC.columns = [['PayorPaid','AllowedAmt','DeductibleAmt','CoinsAmt']]
 
 ''' Calculate the Patient Paid Amount '''  
 Summarized_PtPaid = Claim_pymnt[(Claim_pymnt.TXNType=='RP')].groupby(['OLIID']).agg({'TXNAmount' :'sum'})
 Summarized_PtPaid.columns = columns = ['_'.join(col).strip() for col in Summarized_PtPaid.columns.values] 
-Summarized_PtPaid.columns = [['PatientPaid']]
+Summarized_PtPaid.columns = ['PatientPaid']
 
 ''' Calculate the total adjustment per OLI '''
 Summarized_Adjust = Claim_pymnt[(Claim_pymnt.TXNType.isin(['AC','AD']))].groupby(['OLIID']).agg({'TXNAmount':'sum'})
-Summarized_Adjust.columns = [['stdP_ClmAmtAdj']]
+Summarized_Adjust.columns = ['stdP_ClmAmtAdj']
 
 '''
   Calculate the Refund, Charge Error, and break the adjustment into BR_Categories
@@ -311,7 +335,7 @@ print ('Claim2Rev_QDX_GHI :: group adjustment numbers into Billing & Reimburseme
 
 prep_file_name = "QDX_ClaimDataPrep.xlsx"
 
-Adj_code = pd.read_excel(prep_file_path+prep_file_name, sheetname = "AdjustmentCode", parse_cols="A,C:E,G", encoding='utf-8-sig')
+Adj_code = pd.read_excel(cfg.prep_file_path+prep_file_name, sheet_name = "AdjustmentCode", usecols="A,C:E,G", encoding='utf-8-sig')
 Adj_code.columns = [cell.strip() for cell in Adj_code.columns]
 
 category = 'AdjustmentGroup'
@@ -325,15 +349,15 @@ for a in temp.groups.keys():
     temp_sum = Claim_pymnt[((Claim_pymnt.TXNType.isin(['AC','AD'])) \
                             & (Claim_pymnt.QDXAdjustmentCode.isin(temp_codes)))].groupby(['OLIID']).agg({'TXNAmount' :'sum'})
     temp_sum.columns = [a]
-    Adjust_Category = pd.concat([Adjust_Category,temp_sum], axis=1)  
-
+    Adjust_Category = pd.concat([Adjust_Category,temp_sum], axis=1, sort=False)  
+    ##added sort=False
 '''
   Concatenate the OLI Charges, Payment, Adjustment
   OLIID is the data frame index
 '''
 print ('Claim2Rev_QDX_GHI :: Update bill amount and payment amount by removing the charge error and refund')
 
-QDX_OLI_Receipt = pd.concat([Summarized_Claim, Summarized_PADC, Summarized_PtPaid, Summarized_Adjust, Adjust_Category], axis=1)
+QDX_OLI_Receipt = pd.concat([Summarized_Claim, Summarized_PADC, Summarized_PtPaid, Summarized_Adjust, Adjust_Category], axis=1, sort=False)
 QDX_OLI_Receipt = QDX_OLI_Receipt.fillna(0.0)
 
 # Calculate the OLI Test Charge and Payment received
@@ -432,7 +456,7 @@ OLI_data.loc[x, 'Status Notes'] = "Test Delivered = " + OLI_data.loc[a,'TestDeli
 #output the information for analysis & checking
 Delivered_w_issues = OLI_data[x]
 output_file = 'Delivered_w_issues.txt'
-Delivered_w_issues.to_csv(output_file_path+output_file, sep='|',index=False)
+Delivered_w_issues.to_csv(cfg.output_file_path+output_file, sep='|',index=False)
 
 #Scenarios: Test Not Delivered
 a = (OLI_data.TestDelivered==0)
@@ -732,7 +756,7 @@ pull_values = ['AccrualRevenue','CashRevenue','USDAccrualRevenue', 'USDCashReven
 TXN_Detail = pd.pivot_table(Claim2Rev_tp, index = ['OLIID','BilledCurrency'], 
                             values = pull_values, fill_value=0)
 TXN_Detail = TXN_Detail.stack().reset_index()
-TXN_Detail.columns = [['OLIID','Currency','TXNTypeDesc','TXNAmount']]
+TXN_Detail.columns = ['OLIID','Currency','TXNTypeDesc','TXNAmount']
 
 ### read stdClaim and get the QDXCode, QDXAdjustment
 temp_adjust = Claim_pymnt[(Claim_pymnt.TXNType.isin(['AC','AD']))] \
@@ -749,8 +773,8 @@ Summarized_adj = Summarized_adj.reset_index()
 Summarized_adj.rename(columns = {'TXNCurrency':'Currency'}, inplace=True)
 Summarized_adj['TXNTypeDesc'] = Summarized_adj['GHIAdjustmentCode'] + ':' + Summarized_adj['CategoryDesc']
 
-
-TXN_Detail = pd.concat([TXN_Detail,Summarized_adj])
+#######
+TXN_Detail = pd.concat([TXN_Detail,Summarized_adj], sort=False)
 # drop the rows with zeros
 TXN_Detail = TXN_Detail[~(TXN_Detail.TXNAmount == 0)].sort_values(by=['OLIID'])
 
@@ -798,7 +822,7 @@ TXN_Detail = pd.merge(TXN_Detail,OLI_detail,
 prep_file_name = "Payor-ViewSetAssignment.xlsx"
 
 
-Payor_view = pd.read_excel(prep_file_path+prep_file_name, sheetname = "SetAssignment", parse_cols="B:C", encoding='utf-8-sig')
+Payor_view = pd.read_excel(cfg.prep_file_path+prep_file_name, sheet_name = "SetAssignment", usecols="B:C", encoding='utf-8-sig')
 
 for i in Payor_view.Set.unique() :
     #print (i)
@@ -868,16 +892,16 @@ Prostate_Appeals_Detail.columns = [['Tier1PayorID','Tier1PayorName','Tier2PayorI
 print ('Claim2Rev_QDX_GHI :: write OLITXT_Detail', len(TXN_Detail), 'rows :: start ::', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
 output_file = 'OLI_TXN_Detail.txt'
-TXN_Detail.to_csv(output_file_path+output_file, sep='|',index=False)
+TXN_Detail.to_csv(cfg.output_file_path+output_file, sep='|',index=False)
 
 
 print ('Claim2Rev_QDX_GHI :: write Claim2Rev report ', len(Claim2Rev), 'rows :: start ::', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
 output_file = 'Claim2Rev.txt'
-Claim2Rev_output.to_csv(output_file_path+output_file, sep='|',index=False)
+Claim2Rev_output.to_csv(cfg.output_file_path+output_file, sep='|',index=False)
 
 output_file = 'Claim2Rev_USD.xlsx'
-writer = pd.ExcelWriter(output_file_path+output_file, engine='openpyxl', date_format='yyyy/mm/dd')
+writer = pd.ExcelWriter(cfg.output_file_path+output_file, engine='openpyxl', date_format='yyyy/mm/dd')
 Claim2Rev_USD_excel.to_excel(writer, sheet_name='Claim2Rev', index = False)
 writer.save()
 writer.close()
@@ -891,13 +915,13 @@ writer.close()
 '''
 
 output_file = 'IBC_Appeals_Detail.xlsx'
-writer = pd.ExcelWriter(output_file_path+output_file, engine='openpyxl', date_format='yyyy/mm/dd')
+writer = pd.ExcelWriter(cfg.output_file_path+output_file, engine='openpyxl', date_format='yyyy/mm/dd')
 IBC_Appeals_Detail.to_excel(writer, index = False)
 writer.save()
 writer.close()
 
 output_file = 'Prostate_Appeals_Detail.xlsx'
-writer = pd.ExcelWriter(output_file_path+output_file, engine='openpyxl', date_format='yyyy/mm/dd')
+writer = pd.ExcelWriter(cfg.output_file_path+output_file, engine='openpyxl', date_format='yyyy/mm/dd')
 Prostate_Appeals_Detail.to_excel(writer, index = False)
 writer.save()
 writer.close()

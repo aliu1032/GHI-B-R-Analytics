@@ -12,8 +12,11 @@ import numpy as np
 from datetime import datetime
 from openpyxl.styles.builtins import output
 
-prep_file_path = "C:\\Users\\aliu\\Box Sync\\aliu Cloud Drive\\workspace\\Supplement\\"
-sql_folder = "C:\\Users\\aliu\\Box Sync\\aliu Cloud Drive\\workspace\\SQL\\"
+import project_io_config as cfg
+server = cfg.GHI_DB_Server
+
+#prep_file_path = "C:\\Users\\aliu\\Box Sync\\aliu Cloud Drive\\workspace\\Supplement\\"
+#sql_folder = "C:\\Users\\aliu\\Box Sync\\aliu Cloud Drive\\workspace\\SQL\\"
  
 #folder="C:\\Users\\aliu\\Box Sync\\aliu Cloud Drive\\Analytics\\Payor Analytics\\May022018\\"
 #refresh = 0
@@ -30,7 +33,7 @@ def OLI_detail(usage, folder, refresh=1 ):
     print ("function : GetGHIData: OLI_detail :: start :: ", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
     print ('usage = ', usage,'\nrefresh = ', refresh, '\nfolder is ', folder, "\n\n")
     
-    server = 'EDWStage'
+    #server = 'EDWStage'
     #database = 'StagingDB'
     database = 'EDWDB'
     target = server + '_' + database + '_' + 'OrderLineDetail.txt'
@@ -39,7 +42,7 @@ def OLI_detail(usage, folder, refresh=1 ):
         cnxn = pyodbc.connect('Trusted_Connection=yes',DRIVER='{ODBC Driver 13 for SQL Server}', SERVER=server, DATABASE=database)
        
         #f = open(sql_folder + 'StagingDB_Analytics_OrderDetail.sql')
-        f = open(sql_folder + 'EDWDB_fctOrderLineItem.sql')
+        f = open(cfg.sql_folder + 'EDWDB_fctOrderLineItem.sql')
         tsql = f.read()
         f.close()
         
@@ -48,11 +51,11 @@ def OLI_detail(usage, folder, refresh=1 ):
 
     
     #prep_file_name = "GHI_OLI_Claim_Data_Prep.xlsx"
-    #prep_note = pd.read_excel(prep_file_path+prep_file_name, sheetname = "OrderLineDetail", skiprows=1, encoding='utf-8-sig')
+    #prep_note = pd.read_excel(prep_file_path+prep_file_name, sheet_name = "OrderLineDetail", skiprows=1, encoding='utf-8-sig')
     #########
     prep_file_name = "GHI_vwFctOrderLineItem.xlsx"
-    prep_note = pd.read_excel(prep_file_path+prep_file_name, sheetname = "OrderLineItem",\
-                              skiprows=1,  parse_cols="I:L", encoding='utf-8-sig')
+    prep_note = pd.read_excel(cfg.prep_file_path+prep_file_name, sheet_name = "OrderLineItem",\
+                              skiprows=1,  usecols="I:L", encoding='utf-8-sig')
     prep_note = prep_note[~(prep_note.Synonyms.isnull())]
     #rename_columns = dict(zip(prep_note.StageDB_OrderDetail, prep_note.Synonyms))
     data_type = dict(zip(prep_note.Synonyms, prep_note.Type))
@@ -112,7 +115,7 @@ def OLI_detail(usage, folder, refresh=1 ):
     #  - Add on QDX FC to match QDX ASR; use the QDX FC to fill in missing FC in OLI file   #
     #########################################################################################
     ## Read QDX Ins Plan Txt for Financial Category where GHI does not import the FC for the payor
-    inscode = pd.read_csv(prep_file_path+'insCodes.txt', sep="|", quoting=3, encoding='utf-8-sig', error_bad_lines=False) 
+    inscode = pd.read_csv(cfg.prep_file_path+'insCodes.txt', sep="|", quoting=3, encoding='utf-8-sig', error_bad_lines=False) 
     inscode = inscode[~(inscode['insAltId'].isnull())][['insCode','insFC','insAltId']]
     inscode.rename(columns = {'insCode' : 'QDXInsCode', 'insFC':'QDXInsFC'}, inplace=True)
     ## need to check if the QDXinsPlanCode is matching the current Tier4Payor or the appealInsCode
@@ -157,14 +160,14 @@ def revenue_data(usage, folder, refresh=1):
     print ("function : GetGHIData: revenue data :: start :: ", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
     print ('usage = ', usage,'\nrefresh = ', refresh, '\nfolder is ', folder, "\n\n")
     
-    server = 'EDWStage'    
+    #server = 'EDWStage'    
     database = 'EDWDB'
     target = server + '_' + database + '_' + 'RevenueDetail.txt'
     
     if refresh:
         cnxn = pyodbc.connect('Trusted_Connection=yes',DRIVER='{ODBC Driver 13 for SQL Server}',SERVER=server)
 
-        f = open(sql_folder + 'EDWDB_fctRevenue.sql')
+        f = open(cfg.sql_folder + 'EDWDB_fctRevenue.sql')
         tsql = f.read()
         f.close()
 
@@ -188,7 +191,7 @@ def revenue_data(usage, folder, refresh=1):
 
         
     prep_file_name = 'GHI_fctRevenue.xlsx'
-    prep_note = pd.read_excel(prep_file_path+prep_file_name, sheetname = "Revenue_data", skiprows=1, parse_cols = 'L:Q', encoding='utf-8-sig')
+    prep_note = pd.read_excel(cfg.prep_file_path+prep_file_name, sheet_name = "Revenue_data", skiprows=1, usecols = 'L:Q', encoding='utf-8-sig')
     prep_note = prep_note[~(prep_note.TargetColumn.isnull())].reset_index(drop=True)
     
     rename_columns = dict(zip(prep_note.TargetColumn, prep_note.Synonyms))
@@ -230,7 +233,7 @@ def revenue_data(usage, folder, refresh=1):
     output.TicketNumber = output.TicketNumber.replace('0',np.nan)  
 
     ## Read QDX Ins Plan Txt for Financial Category where GHI does not import the FC for the payor
-    inscode = pd.read_csv(prep_file_path+'insCodes.txt', sep="|", quoting=3, encoding='utf-8-sig', error_bad_lines=False) 
+    inscode = pd.read_csv(cfg.prep_file_path+'insCodes.txt', sep="|", quoting=3, encoding='utf-8-sig', error_bad_lines=False) 
     inscode = inscode[~(inscode['insAltId'].isnull())][['insCode','insFC','insAltId']]
     inscode.rename(columns = {'insCode' : 'QDXInsCode', 'insFC':'QDXInsFC'}, inplace=True)
     ## need to check if the QDXinsPlanCode is matching the current Tier4Payor or the appealInsCode
@@ -266,7 +269,7 @@ def stgBills_data(usage, folder, refresh=1):
     print ("function : GetGHIData: stgBills_data :: start :: ", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
     print ('usage = ', usage,'\nrefresh = ', refresh, '\nfolder is ', folder, "\n\n")
     
-    server = 'EDWStage'
+    #server = 'EDWStage'
     database = 'StagingDB'
     target = server + '_' + database + '_' + 'stgBills.txt'
 
@@ -302,7 +305,7 @@ def stgPayment_data(usage, folder, refresh=1):
     print ("function : GetGHIData: stgPayments_data :: start :: ", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
     print ('usage = ', usage,'\nrefresh = ', refresh, '\nfolder is ', folder, "\n\n")
     
-    server = 'EDWStage'
+    #server = 'EDWStage'
     database = 'StagingDB'
     target = server + '_' + database + '_' + 'stgPayments.txt'
 
@@ -328,5 +331,5 @@ def stgPayment_data(usage, folder, refresh=1):
 def getProductListPrice():
     prep_file_name = "ProductListPrice.xlsx"
 
-    output = pd.read_excel(prep_file_path+prep_file_name, sheetname = "ProductListPrice", encoding='utf-8-sig')
+    output = pd.read_excel(cfg.prep_file_path+prep_file_name, sheet_name = "ProductListPrice", encoding='utf-8-sig')
     return output
