@@ -263,8 +263,9 @@ Current_Ticket_payor = OLI_data[['OLIID','CurrentQDXTicketNumber',#'CurrentQDXCa
 ## example: ticket number = 680557, Quadax has the claim ticket but no reference to the OLI
 ## GHI has nothing of this ticket in the Revenue nor the OLI table
 ## In this case, have to get the Currency, Test and Payer information from the QDX file
-Claim_Payor_Test = Claim_bill[Claim_bill.OLIID=='NONE']\
-                             [['OLIID','TicketNumber',
+## [Claim_bill.OLIID=='NONE']
+## OR000626537 (OLIID: OL000642948, Ticket 612550) no prebilling, billing case in SFDC. There is test delivered date, result. And QDX reports received a payment for it
+Claim_Payor_Test = Claim_bill[['OLIID','TicketNumber',
                                'TXNCurrency','OLIDOS','Test',
                                'TicketInsComp_GHICode',
                                'TicketInsPlan_GHICode',
