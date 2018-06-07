@@ -55,12 +55,8 @@ from datetime import datetime
 
 import project_io_config as cfg
 refresh = cfg.refresh
-#input_file_path = "C:\\Users\\aliu\\Box Sync\\aliu Cloud Drive\\Analytics\\Payor Analytics\\May092018\\"
-#output_file_path = "C:\\Users\\aliu\\Box Sync\\aliu Cloud Drive\\Analytics\\Payor Analytics\\May092018\\"
-#prep_file_path = "C:\\Users\\aliu\\Box Sync\\aliu Cloud Drive\\workspace\\Supplement\\"
 
 print ('Claim2Rev_QDX_GHI :: start :: ',datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-
 
 ###############################################################
 #   Read QDX Claim and Payment (Receipt) data                 #
@@ -111,12 +107,6 @@ ClaimTicket_appeal_wide = appeal_data['ClaimTicket_appeal_wide']
 ############################################################################### 
 # rename OLI_data.CurrentQDXTicketNumber
 OLI_data.rename(columns = {'CurrentTicketNumber':'BI_CurrentTicketNumber'}, inplace=True)
-
-# Retrieve the max Ticket Number and information with it
-# first group by OLIID + Ticket Number and get the max case number
-# then group by OLIID to get the max Ticket Number
-
-#### https://www.tutorialspoint.com/python_pandas/python_pandas_groupby.htm
 
 ##this works with 0.20 and not in 0.23
 #temp = Claim_bill.groupby(['OLIID','TicketNumber']).agg({'CaseNumber':'idxmax'})  # this return a dataframe with ['OLIID','TicketNumber' as the index)
@@ -218,12 +208,10 @@ b = b + list(a[(a.Currency> 1)].index) # find the OrderLineItemID with inconsist
 
 error_Revenue_data = Revenue_data[(Revenue_data['OLIID'].isin(b))]
 
-# Oct 18: drop the Top Side adjustment lines : IsRevenueReconciliationAdjustment == '0'
-# Nov7 : include all revenue rows
-# Nov14: remove the adjustment rows. Need to diff the file and identify the adjustment row in 2017
+# drop the Top Side adjustment lines : IsRevenueReconciliationAdjustment == '0'
+# process changed in 2017 and thus the flag is not applicable since 2017
 Revenue_data = Revenue_data[(Revenue_data.IsRevenueReconciliationAdjustment == '0')]
 #Revenue_data[(Revenue_data.IsRevenueReconciliationAdjustment == '1')]['AccountingPeriod'].unique()
-## the flag looks stopped since 2017
 
 ########################################################################################
 #   Aggregate Revenue numbers to the OLI level                                         #
@@ -339,7 +327,6 @@ Adj_code = pd.read_excel(cfg.prep_file_path+prep_file_name, sheet_name = "Adjust
 Adj_code.columns = [cell.strip() for cell in Adj_code.columns]
 
 category = 'AdjustmentGroup'
-#category = 'CategoryDesc'
 temp = Adj_code.groupby([category])
 
 Adjust_Category = pd.DataFrame()
@@ -351,13 +338,26 @@ for a in temp.groups.keys():
     temp_sum.columns = [a]
     Adjust_Category = pd.concat([Adjust_Category,temp_sum], axis=1, sort=False)  
     ##added sort=False
+
+
+##also lay out the summarized amount of CategoryDesc
+category = 'Category'
+temp = Adj_code.groupby([category])
+GHIAdjust_Category = pd.DataFrame()
+for a in temp.groups.keys():
+    temp_codes = list(Adj_code[(Adj_code[category]==a)]['Code'])
+    temp_sum = Claim_pymnt[((Claim_pymnt.TXNType.isin(['AC','AD'])) \
+                            & (Claim_pymnt.QDXAdjustmentCode.isin(temp_codes)))].groupby(['OLIID']).agg({'TXNAmount' :'sum'})
+    temp_sum.columns = [a]
+    GHIAdjust_Category = pd.concat([GHIAdjust_Category,temp_sum], axis=1, sort=False)
+
 '''
   Concatenate the OLI Charges, Payment, Adjustment
   OLIID is the data frame index
 '''
 print ('Claim2Rev_QDX_GHI :: Update bill amount and payment amount by removing the charge error and refund')
 
-QDX_OLI_Receipt = pd.concat([Summarized_Claim, Summarized_PADC, Summarized_PtPaid, Summarized_Adjust, Adjust_Category], axis=1, sort=False)
+QDX_OLI_Receipt = pd.concat([Summarized_Claim, Summarized_PADC, Summarized_PtPaid, Summarized_Adjust, Adjust_Category, GHIAdjust_Category], axis=1, sort=False)
 QDX_OLI_Receipt = QDX_OLI_Receipt.fillna(0.0)
 
 # Calculate the OLI Test Charge and Payment received
@@ -435,10 +435,6 @@ OLI_data.loc[a,'OrderLineItemCancellationReason'] = OLI_data.loc[a,'OrderCancell
 
 a = ~OLI_data.OrderLineItemCancellationReason.isnull() & (OLI_data.OrderCancellationReason.isnull())
 OLI_data.loc[a,'OrderCancellationReason'] = OLI_data.loc[a,'OrderLineItemCancellationReason']
-
-#a = OLI_data.FailureCode == ' '
-#OLI_data.loc[a,'FailureCode'] = np.NaN
-#temp = OLI_data.pivot_table(index = 'FailureCode', values='OLIID', aggfunc='count')
 
 # Derive the Test Order Status using the Customer Status, Order & OLI cancellation reason, Failure Code, Test Delivered Flag
 # Scenario: Test Delivered with no cancellation and no failure code
@@ -587,21 +583,6 @@ a = Claim2Rev.appealResult.isnull()
 Claim2Rev.loc[a & c, 'BillingCaseStatusSummary2'] = 'Claim in Process'
 
 ############################################################################
-#      Adding Test Clinical Criteria to Claim2Rev                          #
-############################################################################
-
-#print ('Claim2Rev_QDX_GHI :: adding OLI Utilization :: ',datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-
-#just update the Micromets ReportingGroup
-
-#ClinicalCriteria = OLI_data[['OLIID', 'NodalStatus', 'RiskGroup', 'ReportingGroup', 'ClinicalStage',
-#                             'EstimatedNCCNRisk', 'SubmittedNCCNRisk', 'FavorablePathologyComparison']].copy()
-a = Claim2Rev.ReportingGroup == 'Node Positive (Micromet)'
-Claim2Rev.loc[a,'ReportingGroup'] = Claim2Rev.loc[a,'NodalStatus'] 
-
-#Claim2Rev = pd.merge(Claim2Rev, ClinicalCriteria, how='left', on='OLIID')
-
-############################################################################
 # Reading and adding QDX priorAuth case status                             #
 # aka pre claim status                                                     #
 # We would like to provide the PA case status as on report generation date #
@@ -618,6 +599,18 @@ Claim2Rev= pd.merge(Claim2Rev, priorAuth[['priorAuthCaseNum','priorAuthEnteredDt
                                           'priorAuthResult_Category']]
                     , how='left', left_on='CurrentQDXCaseNumber', right_on='priorAuthCaseNum')
 
+
+############################################################################
+#      Ad hoc fixes to Claim2Rev Data                                      #
+############################################################################
+
+a = Claim2Rev.ReportingGroup == 'Node Positive (Micromet)'
+Claim2Rev.loc[a,'ReportingGroup'] = Claim2Rev.loc[a,'NodalStatus'] 
+
+a = (Claim2Rev.Tier1Payor == 'Humana Inc. (CR085626)')
+Claim2Rev.loc[a, 'Tier1Payor'] = 'Humana, Inc. (CR085626)'
+Claim2Rev.loc[a, 'Tier1PayorName'] = 'Humana, Inc.'
+
 #############################################################################
 #Rearranging Columns
 Claim2Rev_output = Claim2Rev[['OrderID',
@@ -633,10 +626,8 @@ Claim2Rev_output = Claim2Rev[['OrderID',
 
 #        'ClmAmtAdj', 'stdP_ClmAmtAdj',
         'Total Adjustment'
-        ] + list(Adj_code.groupby([category]).groups.keys()) + [
-#        'Recon_Adjustment','Sum_AdjBreakout', 'Receipt_Checksum',
-        
-#        'Currency', 
+        ] + list(Adj_code.groupby('AdjustmentGroup').groups.keys()) + [
+ 
         'Revenue', 'AccrualRevenue', 'CashRevenue',
         'USDRevenue', 'USDAccrualRevenue', 'USDCashRevenue', 
         
@@ -680,10 +671,7 @@ Claim2Rev_output = Claim2Rev[['OrderID',
         'priorAuthResult_Category'       
         ]].copy()
         
-#Jan 18: extract a dataset in excel for Jodi
-#Feb 15: after reviewed with Jodi, change to filter by BilledCurrency instead of Currency 
-#  & Claim2Rev.Tier1Payor != 'Unknown' -- hold on to unknown 
-# check Order number
+#Dataset in excel for Jodi with only Domestic Orders
 Claim2Rev_USD_excel = Claim2Rev[Claim2Rev.BusinessUnit == 'Domestic'][['OrderID',
         'OLIID', 'Test','OrderStartDate', 'TestDeliveredDate', 'CurrentQDXTicketNumber',
         'BillingCaseStatusSummary2', 'BillingCaseStatusCode', 'BillingCaseStatus',
@@ -733,7 +721,73 @@ Claim2Rev_USD_excel = Claim2Rev[Claim2Rev.BusinessUnit == 'Domestic'][['OrderID'
         'priorAuthResult', 'priorAuthResult_Category'
         ]]
 
+Claim2Rev_Research = Claim2Rev[Claim2Rev.BusinessUnit == 'Domestic'][['OrderID',
+        'OLIID', 'Test', 'TestDeliveredDate', 'CurrentQDXTicketNumber',
+#        'QDXTickCnt','QDXCaseCnt',
+        'BillingCaseStatusSummary2',
+#        'BillingCaseStatusCode', 'BillingCaseStatus',
+        'BilledCurrency', 'ListPrice', 'ContractedPrice', 'Total Outstanding',
+        'Total Billed',
+#        'Charge',
 
+#        'ClmAmtRec', 
+        'Total Payment',
+        'PayorPaid','PatientPaid',
+
+#        'ClmAmtAdj', 'stdP_ClmAmtAdj',
+        'Total Adjustment'
+        ] + list(Adj_code.groupby('AdjustmentGroup').groups.keys())
+          + list(Adj_code.groupby('Category').groups.keys())
+          +                     
+        [
+#        'Recon_Adjustment','Sum_AdjBreakout', 'Receipt_Checksum',
+        
+#        'Currency', 
+#        'Revenue', 'AccrualRevenue', 'CashRevenue',
+#        'USDRevenue', 'USDAccrualRevenue', 'USDCashRevenue', 
+        
+        'Tier1PayorID','Tier1PayorName', 'Tier1Payor',
+        'Tier2PayorID', 'Tier2Payor','Tier2PayorName',  
+        'Tier4PayorID', 'Tier4Payor','Tier4PayorName',
+        'QDXInsPlanCode', 'LineOfBenefit', 'QDXInsFC', 'FinancialCategory',
+            
+#        'Reportable', 'IsCharge',
+#        'RevenueStatus',  'TestDelivered', 'IsClaim', 'IsFullyAdjudicated', 'NSInCriteria',
+        
+        'Status', 'FailureMessage', #'Status Notes',
+
+        'BusinessUnit', 'InternationalArea', 'Division', 'Country', 'OrderingHCPName',
+        'Territory', 'TerritoryRegion', 'TerritoryArea',
+        'OrderingHCPCity', 'OrderingHCPState', 'OrderingHCPCountry',
+        'IsOrderingHCPCTR', 'IsOrderingHCPPECOS', 'OrderStartDate',
+
+#        'OLIStartDate', 'DateOfService',
+#        'TicketCnt',
+        'ClaimPeriodDate', 'AccountingPeriodCnt',
+#        'AccountingPeriodDate_init', 'AccountingPeriodDate_last',
+#        'AllowedAmt_Outliner', 'AllowedAmt', 'DeductibleAmt', 'CoinsAmt'
+
+#        'appealCaseNum',
+        'CurrentQDXCaseNumber',
+        'A1_Status', 'A2_Status', 'A3_Status', 'A4_Status', 'A5_Status',
+        'ER_Status', 'L1_Status', 'L2_Status', 'L3_Status',
+        
+#        'A1', 'A2', 'A3', 'A4', 'A5', 'ER', 'L1', 'L2', 'L3',
+        'Last Appeal level', 'lastappealEntryDt',
+        'appealDenReason','appealDenReasonDesc',
+        'appealAmtChg', 'appealAmtChgExp',
+        'appealAmtAllow', 'appealAmtClmRec', 'appealAmt', 'appealAmtAplRec',
+        'appealRptDt', 'appealSuccess', 'appealCurrency', 'appealResult',
+        
+        'Specialty','NodalStatus',
+#        'RiskGroup','ReportingGroup','ClinicalStage',
+        'EstimatedNCCNRisk',
+#        'SubmittedNCCNRisk','FavorablePathologyComparison',
+        
+        'priorAuthCaseNum','priorAuthEnteredDt','priorAuthEnteredTime', 'priorAuthDate',
+        'priorAuthResult','priorAuthReqDesc','priorAuthDate','priorAuthNumber',
+        'priorAuthResult_Category'       
+        ]]
 
 ############################################################
 #     Create a Transpose of the Bill, Adjustment, Revenue  #
@@ -756,22 +810,23 @@ pull_values = ['AccrualRevenue','CashRevenue','USDAccrualRevenue', 'USDCashReven
 TXN_Detail = pd.pivot_table(Claim2Rev_tp, index = ['OLIID','BilledCurrency'], 
                             values = pull_values, fill_value=0)
 TXN_Detail = TXN_Detail.stack().reset_index()
-TXN_Detail.columns = ['OLIID','Currency','TXNTypeDesc','TXNAmount']
+TXN_Detail.columns = ['OLIID','Currency','TXNType','TXNAmount']
 
-### read stdClaim and get the QDXCode, QDXAdjustment
+### read all adjustment transaction from stdPymnt
 temp_adjust = Claim_pymnt[(Claim_pymnt.TXNType.isin(['AC','AD']))] \
                          [['OLIID', 'TicketNumber', 'Test','TXNAcctPeriod'
                           ,'TXNCurrency', 'TXNAmount', 'TXNType','TXNLineNumber'
                           ,'QDXAdjustmentCode', 'Description'
                           ,'GHIAdjustmentCode','CategoryDesc','AdjustmentGroup']].copy()
 
+#missing TXNAcctPeriod
 Summarized_adj = temp_adjust.groupby(['OLIID','TXNCurrency'
                                       ,'QDXAdjustmentCode', 'Description'
                                       ,'GHIAdjustmentCode','CategoryDesc','AdjustmentGroup']).agg({'TXNAmount' :'sum'})
 Summarized_adj = Summarized_adj.reset_index()
 
 Summarized_adj.rename(columns = {'TXNCurrency':'Currency'}, inplace=True)
-Summarized_adj['TXNTypeDesc'] = Summarized_adj['GHIAdjustmentCode'] + ':' + Summarized_adj['CategoryDesc']
+Summarized_adj['TXNType'] = Summarized_adj['GHIAdjustmentCode'] + ':' + Summarized_adj['CategoryDesc']
 
 #######
 TXN_Detail = pd.concat([TXN_Detail,Summarized_adj], sort=False)
@@ -786,25 +841,25 @@ TXN_Detail['TXNSubCategory'] = 'Adjustment'
 # overwrite for Revenue & Billing
 TXNSubCategory_dict = {'USDAccrualRevenue':'USDAccrual', 'USDCashRevenue':'USDCash'}
 for a in list(TXNSubCategory_dict.keys()):
-    TXN_Detail.loc[(TXN_Detail.TXNTypeDesc==a),'TXNCategory'] = 'USDRevenue'
-    TXN_Detail.loc[(TXN_Detail.TXNTypeDesc==a),'TXNSubCategory'] = TXNSubCategory_dict.get(a)
+    TXN_Detail.loc[(TXN_Detail.TXNType==a),'TXNCategory'] = 'USDRevenue'
+    TXN_Detail.loc[(TXN_Detail.TXNType==a),'TXNSubCategory'] = TXNSubCategory_dict.get(a)
     
 TXNSubCategory_dict = {'AccrualRevenue':'Accrual', 'CashRevenue':'Cash'}
 for a in list(TXNSubCategory_dict.keys()):
-    TXN_Detail.loc[(TXN_Detail.TXNTypeDesc==a),'TXNCategory'] = 'Revenue'
-    TXN_Detail.loc[(TXN_Detail.TXNTypeDesc==a),'TXNSubCategory'] = TXNSubCategory_dict.get(a)
+    TXN_Detail.loc[(TXN_Detail.TXNType==a),'TXNCategory'] = 'Revenue'
+    TXN_Detail.loc[(TXN_Detail.TXNType==a),'TXNSubCategory'] = TXNSubCategory_dict.get(a)
 
 TXNSubCategory_dict = {'Charge':'Charge', 'GH04:Charged in Error':'Charged in Error'}
 for a in list(TXNSubCategory_dict.keys()):
-    TXN_Detail.loc[TXN_Detail['TXNTypeDesc'] == a,'TXNCategory'] = 'Billing'
-    TXN_Detail.loc[TXN_Detail['TXNTypeDesc'] == a,'TXNSubCategory'] = TXNSubCategory_dict.get(a)
-TXN_Detail.loc[TXN_Detail['TXNTypeDesc'] == 'GH04:Charged in Error','TXNTypeDesc'] = 'Charged in Error'
+    TXN_Detail.loc[TXN_Detail['TXNType'] == a,'TXNCategory'] = 'Billing'
+    TXN_Detail.loc[TXN_Detail['TXNType'] == a,'TXNSubCategory'] = TXNSubCategory_dict.get(a)
+#TXN_Detail.loc[TXN_Detail['TXNType'] == 'GH04:Charged in Error','TXNType'] = 'Charged in Error'
 
-TXN_Detail.loc[TXN_Detail['TXNTypeDesc'].isin(['Total Outstanding']),'TXNSubCategory'] = 'Outstanding'
-TXN_Detail.loc[TXN_Detail['TXNTypeDesc'].isin(['Total Outstanding']),'TXNTypeDesc'] = 'Outstanding'
+TXN_Detail.loc[TXN_Detail['TXNType'].isin(['Total Outstanding']),'TXNSubCategory'] = 'Outstanding'
+TXN_Detail.loc[TXN_Detail['TXNType'].isin(['Total Outstanding']),'TXNType'] = 'Outstanding'
 
-TXN_Detail.loc[TXN_Detail['TXNTypeDesc'].isin(['PayorPaid','PatientPaid','GH09:Refund & Refund Reversal']),'TXNSubCategory'] = 'Payment'
-TXN_Detail.loc[TXN_Detail['TXNTypeDesc'] == 'GH09:Refund & Refund Reversal','TXNTypeDesc'] = 'Refund & Refund Reversal'
+TXN_Detail.loc[TXN_Detail['TXNType'].isin(['PayorPaid','PatientPaid','GH09:Refund & Refund Reversal']),'TXNSubCategory'] = 'Payment'
+#TXN_Detail.loc[TXN_Detail['TXNType'] == 'GH09:Refund & Refund Reversal','TXNTypeDesc'] = 'Refund & Refund Reversal'
 
 
 ## Adding the OLI detail
@@ -820,7 +875,6 @@ TXN_Detail = pd.merge(TXN_Detail,OLI_detail,
 #   Add the Payor View Set assignment   #
 #########################################
 prep_file_name = "Payor-ViewSetAssignment.xlsx"
-
 
 Payor_view = pd.read_excel(cfg.prep_file_path+prep_file_name, sheet_name = "SetAssignment", usecols="B:C", encoding='utf-8-sig')
 
@@ -906,6 +960,12 @@ Claim2Rev_USD_excel.to_excel(writer, sheet_name='Claim2Rev', index = False)
 writer.save()
 writer.close()
 
+output_file = 'Claim2Rev_DenialResearch.xlsx'
+writer = pd.ExcelWriter(cfg.output_file_path+output_file, engine='openpyxl', date_format='yyyy/mm/dd')
+Claim2Rev_Research.to_excel(writer, sheet_name='Claim2Rev_DenialResearch', index = False)
+writer.save()
+writer.close()
+
 '''
 output_file = 'PreClaim_Status_SalesOps.xlsx'
 writer = pd.ExcelWriter(output_file_path+output_file, engine='openpyxl', date_format='yyyy/mm/dd')
@@ -925,14 +985,6 @@ writer = pd.ExcelWriter(cfg.output_file_path+output_file, engine='openpyxl', dat
 Prostate_Appeals_Detail.to_excel(writer, index = False)
 writer.save()
 writer.close()
-
-'''
-output_file = 'Claim2Rev_Check.xlsx'
-writer = pd.ExcelWriter(QDX_file_path+output_file, engine='openpyxl', date_format='yyyy/mm/dd')
-Claim2Rev.to_excel(writer, sheet_name='Claim2Rev', index = False)
-writer.save()
-writer.close()
-'''
 
 print ('Hurray !!! Done Done Done',datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 

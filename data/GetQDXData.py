@@ -266,6 +266,7 @@ def stdPayment(usage, folder, refresh=0):
     
     # update old GHI adjustment code for PRAC to GH07, Financial Assistance Adj for Financial Assistance
     output.loc[output.QDXAdjustmentCode=='PRAC', 'GHIAdjustmentCode'] = 'GH07'
+    output.loc[output.QDXAdjustmentCode=='PRA', 'GHIAdjustmentCode'] = 'GH07'
     
     # resolve the adjustment code with description
     output = pd.merge(output, Adj_code, how='left', left_on='QDXAdjustmentCode', right_on='Code')
@@ -319,8 +320,6 @@ def stdClaim(usage, folder, refresh=0):
     target = server + '_' + database + '_' + 'QDX_stdClaimFile.txt'
 
     prep_file_name = "QDX_ClaimDataPrep.xlsx"
-#pandas 0.20 use sheetname
-#pandas 0.23 use sheet_name
     claim_note = pd.read_excel(cfg.prep_file_path+prep_file_name, sheet_name = "QDXClaim", skiprows=1, encoding='utf-8-sig')
     rename_columns = dict(zip(claim_note.QDX_stdClaimFile, claim_note.Synonyms))
     data_type = dict(zip(claim_note.QDX_stdClaimFile, claim_note.Type))

@@ -13,8 +13,8 @@ Created on Jun 1, 2018
 
 refresh = 0
 
-input_file_path = "C:\\Users\\aliu\\Box Sync\\aliu Cloud Drive\\Analytics\\Payor Analytics\\May092018\\"
-output_file_path = "C:\\Users\\aliu\\Box Sync\\aliu Cloud Drive\\Analytics\\Payor Analytics\\May092018\\"
+input_file_path = "C:\\Users\\aliu\\Box Sync\\aliu Cloud Drive\\Analytics\\Payor Analytics\\Jun052018\\"
+output_file_path = "C:\\Users\\aliu\\Box Sync\\aliu Cloud Drive\\Analytics\\Payor Analytics\\Jun052018\\"
 prep_file_path = "C:\\Users\\aliu\\Box Sync\\aliu Cloud Drive\\workspace\\Supplement\\"
 
 prep_file_path = "C:\\Users\\aliu\\Box Sync\\aliu Cloud Drive\\workspace\\Supplement\\"
@@ -27,3 +27,4 @@ QDX_DB = 'Quadax'
 GHI_DB_Server = 'EDWStage'
 GHI_Stage_DB = 'Staging'
 GHI_EDW_DB = 'EDWDB'
+
