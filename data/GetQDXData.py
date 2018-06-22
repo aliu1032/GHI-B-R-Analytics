@@ -53,6 +53,7 @@ def appeal_case_status (folder, refresh = 1):
     #output.appealCaseNumber = output.appealCaseNumber.astype(str)
     output.appealEntryDt = pd.to_datetime(output.appealEntryDt, format = "%Y%m%d", errors='coerce')
     output.appealDenialLetterDt = pd.to_datetime(output.appealDenialLetterDt, format = "%Y%m%d", errors='coerce')
+    output.appealLetDt = pd.to_datetime(output.appealLetDt, format = "%Y%m%d", errors='coerce')
     output.appealDenReason = output.appealDenReason.str.lstrip('0')
 
     return output
@@ -268,6 +269,9 @@ def stdPayment(usage, folder, refresh=0):
     output.loc[output.QDXAdjustmentCode=='PRAC', 'GHIAdjustmentCode'] = 'GH07'
     output.loc[output.QDXAdjustmentCode=='PRA', 'GHIAdjustmentCode'] = 'GH07'
     
+    output.loc[output.QDXAdjustmentCode== 'BAO', 'GHIAdjustmentCode'] = 'GH13'
+    output.loc[output.QDXAdjustmentCode== 'CNCA', 'GHIAdjustmentCode'] = 'GH16'
+        
     # resolve the adjustment code with description
     output = pd.merge(output, Adj_code, how='left', left_on='QDXAdjustmentCode', right_on='Code')
     output = output.drop(['Code','Category'],1)   

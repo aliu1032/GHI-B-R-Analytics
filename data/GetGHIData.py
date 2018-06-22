@@ -107,7 +107,8 @@ def OLI_detail(usage, folder, refresh=1 ):
     output.CurrentTicketNumber = output.CurrentTicketNumber.fillna(0.0)
     output.CurrentTicketNumber = output.CurrentTicketNumber.astype(float).astype(int).astype('str')
     output.CurrentTicketNumber = output.CurrentTicketNumber.replace('0',np.nan)  
-        
+    
+    output.loc[output.RiskGroup.isnull(),'RiskGroup'] = 'Unknown'
     #########################################################################################
     #  Enrich Data                                                                          #
     #  - Reading the Financial Category code from GHI. GHI import and track the FC for      #
@@ -255,6 +256,34 @@ def revenue_data(usage, folder, refresh=1):
         select_column = prep_note[(prep_note['OLI_Payment_Revenue'] == 1)]['Synonyms']
 
     return output[select_column]
+
+
+#################################################
+#   Payor Test Criteria                         #
+#################################################
+def getPTC (usage, folder, refresh = 1):
+    
+    print ("function : GetGHIData: get PTC :: start :: ", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    print ('usage = ', usage,'\nrefresh = ', refresh, '\nfolder is ', folder, "\n\n")
+    
+    #server = 'EDWStage'    
+    database = 'StagingDB'
+    target = server + '_' + database + '_' + 'SFDC_PTC.txt'
+    
+    if refresh:
+        cnxn = pyodbc.connect('Trusted_Connection=yes',DRIVER='{ODBC Driver 13 for SQL Server}',SERVER=server)
+
+        f = open(cfg.sql_folder + 'StagingDB_SFDC_PTC.sql')
+        tsql = f.read()
+        f.close()
+
+        output = pd.read_sql(tsql, cnxn)
+        output.to_csv(folder + target, sep='|', index=False)
+        
+    else:
+        output = pd.read_csv(folder + target, sep="|", encoding="ISO-8859-1")
+        
+    return(output)
 
 #################################################
 #   stgBills                                    #

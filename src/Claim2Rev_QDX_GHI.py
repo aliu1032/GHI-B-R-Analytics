@@ -52,6 +52,7 @@ Jan 24 :: A known QDX bug with Roster billing, it creates multiple cases for an 
 import pandas as pd
 #import numpy as np
 from datetime import datetime
+import time
 
 import project_io_config as cfg
 refresh = cfg.refresh
@@ -70,12 +71,15 @@ priorAuth = QData.priorAuth('Claim2Rev', cfg.input_file_path, refresh)
 
 ###############################################################
 #   Read GHI Revenue Data and OrderLineDetail and Appeal Data #
-############################################################### 
+###############################################################
 
 from data import GetGHIData as GData
 Revenue_data = GData.revenue_data('Claim2Rev', cfg.input_file_path, refresh)
 OLI_data = GData.OLI_detail('Claim2Rev', cfg.input_file_path, refresh)
 #OLI_utilization = GData.OLI_detail('Utilization', input_file_path, 0)
+
+#OSM_Patient_Age_at_Biopsy__c
+#DCIS_GHI_Calculated_Age_at_Diagnosis__c
 
 ###############################################################
 #   Read QDX Appeal Data                                      #
@@ -258,10 +262,11 @@ OLI_rev = pd.merge(Summarized_Rev_key, Summarized_Revenue, how='left', left_on=[
 print ('Claim2Rev_QDX_GHI :: Aggregate Bill, Payment, Adjustment numbers per OLI')
 
 ## Reverse the Amt Received and Amt Adjust sign
+#this throw the view-vs-copy warning
 temp = ['ClmAmtRec','ClmAmtAdj']
 for a in temp:
     Claim_bill.loc[Claim_bill[a] != 0.0, a].apply(lambda x : x * -1)
-    #Claim_bill.loc[Claim_bill[a] != 0.0, a] = Claim_bill.loc[Claim_bill[a] != 0.0, a] * -1
+#    Claim_bill.loc[Claim_bill[a] != 0.0, a] = Claim_bill.loc[Claim_bill[a] != 0.0, a] * -1
 
 aggregations = {
     'TXNAmount': 'sum',
@@ -326,7 +331,7 @@ prep_file_name = "QDX_ClaimDataPrep.xlsx"
 Adj_code = pd.read_excel(cfg.prep_file_path+prep_file_name, sheet_name = "AdjustmentCode", usecols="A,C:E,G", encoding='utf-8-sig')
 Adj_code.columns = [cell.strip() for cell in Adj_code.columns]
 
-category = 'AdjustmentGroup'
+category = 'TXN Subcategory'
 temp = Adj_code.groupby([category])
 
 Adjust_Category = pd.DataFrame()
@@ -364,19 +369,6 @@ QDX_OLI_Receipt = QDX_OLI_Receipt.fillna(0.0)
 QDX_OLI_Receipt['Total Billed'] = QDX_OLI_Receipt.Charge + QDX_OLI_Receipt['Charged in Error']
 QDX_OLI_Receipt['Total Payment'] = QDX_OLI_Receipt.ClmAmtRec + QDX_OLI_Receipt['Refund & Refund Reversal']
 QDX_OLI_Receipt['Total Adjustment'] = round(QDX_OLI_Receipt.stdP_ClmAmtAdj - QDX_OLI_Receipt['Charged in Error'] - QDX_OLI_Receipt['Refund & Refund Reversal'],2)
-
-###check sum ###
-QDX_OLI_Receipt['Recon_Adjustment'] = round((QDX_OLI_Receipt.ClmAmtAdj - QDX_OLI_Receipt.stdP_ClmAmtAdj),2)
-QDX_OLI_Receipt['Sum_AdjBreakout'] = round(QDX_OLI_Receipt.stdP_ClmAmtAdj
-                                           + QDX_OLI_Receipt['Charged in Error']
-                                           - QDX_OLI_Receipt['Refund & Refund Reversal']
-                                           - QDX_OLI_Receipt['Total Adjustment'],2)
-QDX_OLI_Receipt['Receipt_Checksum'] = round(QDX_OLI_Receipt['Total Billed'] - QDX_OLI_Receipt[['Total Adjustment', 'Total Payment', 'Total Outstanding']].sum(axis=1),2)
-
-#Jan 22: adding the check to payment
-QDX_OLI_Receipt['Recon_Pymnt'] = round((QDX_OLI_Receipt['ClmAmtRec'] - QDX_OLI_Receipt['Total Payment']),2)
-# need to insert the blank List Price -
-# check why OLI has current Ticket number, but the Ticket number is not in the stdClaim and stdPayment file, and the Revenue file
 
 ############################################################
 # Fill in Product List Price in OLI data if blank          #
@@ -529,6 +521,7 @@ Appeal_ClaimTicket = ClaimTicket_appeal_wide[['appealCaseNum','CaseappealLvlCnt'
                                               
                                               'OLIappealLvlCnt',
                                               'Last Appeal level',
+                                              'firstappealEntryDt',
                                               'lastappealEntryDt',
                                               #'lastappealDenReason',
                                               #'lastappealDenialLetterDt',
@@ -537,6 +530,7 @@ Appeal_ClaimTicket = ClaimTicket_appeal_wide[['appealCaseNum','CaseappealLvlCnt'
                                               'appealAmtAllow', 'appealAmtClmRec', 'appealAmt', 'appealAmtAplRec',
                                               'appealRptDt', 'appealSuccess', 'appealCurrency'
        ]].copy()
+#appealRptDt is from completed appeal
 
 # rename columns for merging
 Appeal_ClaimTicket.rename(columns = {'appealAccession':'OLIID', 'appealTickNum':'CurrentQDXTicketNumber'}, inplace=True)
@@ -626,7 +620,7 @@ Claim2Rev_output = Claim2Rev[['OrderID',
 
 #        'ClmAmtAdj', 'stdP_ClmAmtAdj',
         'Total Adjustment'
-        ] + list(Adj_code.groupby('AdjustmentGroup').groups.keys()) + [
+        ] + list(Adj_code.groupby('TXN Subcategory').groups.keys()) + [
  
         'Revenue', 'AccrualRevenue', 'CashRevenue',
         'USDRevenue', 'USDAccrualRevenue', 'USDCashRevenue', 
@@ -657,13 +651,14 @@ Claim2Rev_output = Claim2Rev[['OrderID',
         'ER_Status', 'L1_Status', 'L2_Status', 'L3_Status',
         
         'A1', 'A2', 'A3', 'A4', 'A5', 'ER', 'L1', 'L2', 'L3',
-        'Last Appeal level', 'lastappealEntryDt',
+        'Last Appeal level', 'firstappealEntryDt','lastappealEntryDt','appealRptDt',
         'appealDenReason','appealDenReasonDesc',
         'appealAmtChg', 'appealAmtChgExp',
         'appealAmtAllow', 'appealAmtClmRec', 'appealAmt', 'appealAmtAplRec',
-        'appealRptDt', 'appealSuccess', 'appealCurrency', 'appealResult',
+        'appealSuccess', 'appealCurrency', 'appealResult',
         
-        'Specialty','NodalStatus','RiskGroup','ReportingGroup','ClinicalStage',
+        'Specialty','NodalStatus','RecurrenceScore','PatientAgeAtOrderStart',
+        'RiskGroup','ReportingGroup','ClinicalStage',
         'EstimatedNCCNRisk', 'SubmittedNCCNRisk','FavorablePathologyComparison',
         
         'priorAuthCaseNum','priorAuthEnteredDt','priorAuthEnteredTime', 'priorAuthDate',
@@ -708,7 +703,7 @@ Claim2Rev_USD_excel = Claim2Rev[Claim2Rev.BusinessUnit == 'Domestic'][['OrderID'
 #        'A1_Status', 'A2_Status', 'A3_Status', 'A4_Status', 'A5_Status',
 #        'ER_Status', 'L1_Status', 'L2_Status', 'L3_Status',
 
-        'Last Appeal level', 'lastappealEntryDt',
+        'Last Appeal level', 'firstappealEntryDt',
         'appealDenReason','appealDenReasonDesc',
         'appealAmtChg', 'appealAmtChgExp',
         'appealAmtAllow', 'appealAmtClmRec', 'appealAmt', 'appealAmtAplRec',
@@ -736,11 +731,11 @@ Claim2Rev_Research = Claim2Rev[Claim2Rev.BusinessUnit == 'Domestic'][['OrderID',
 
 #        'ClmAmtAdj', 'stdP_ClmAmtAdj',
         'Total Adjustment'
-        ] + list(Adj_code.groupby('AdjustmentGroup').groups.keys())
+        ] + list(Adj_code.groupby('TXN Subcategory').groups.keys())
           + list(Adj_code.groupby('Category').groups.keys())
           +                     
         [
-#        'Recon_Adjustment','Sum_AdjBreakout', 'Receipt_Checksum',
+#        'Recon_Adjustment','Sum_AdjBreakout',
         
 #        'Currency', 
 #        'Revenue', 'AccrualRevenue', 'CashRevenue',
@@ -817,12 +812,12 @@ temp_adjust = Claim_pymnt[(Claim_pymnt.TXNType.isin(['AC','AD']))] \
                          [['OLIID', 'TicketNumber', 'Test','TXNAcctPeriod'
                           ,'TXNCurrency', 'TXNAmount', 'TXNType','TXNLineNumber'
                           ,'QDXAdjustmentCode', 'Description'
-                          ,'GHIAdjustmentCode','CategoryDesc','AdjustmentGroup']].copy()
+                          ,'GHIAdjustmentCode','CategoryDesc','TXN Subcategory']].copy()
 
 #missing TXNAcctPeriod
 Summarized_adj = temp_adjust.groupby(['OLIID','TXNCurrency'
                                       ,'QDXAdjustmentCode', 'Description'
-                                      ,'GHIAdjustmentCode','CategoryDesc','AdjustmentGroup']).agg({'TXNAmount' :'sum'})
+                                      ,'GHIAdjustmentCode','CategoryDesc','TXN Subcategory']).agg({'TXNAmount' :'sum'})
 Summarized_adj = Summarized_adj.reset_index()
 
 Summarized_adj.rename(columns = {'TXNCurrency':'Currency'}, inplace=True)
@@ -836,29 +831,29 @@ TXN_Detail = TXN_Detail[~(TXN_Detail.TXNAmount == 0)].sort_values(by=['OLIID'])
 
 ## add TXNCategory and TXNSubCategory
 TXN_Detail['TXNCategory'] = 'Receipts'
-TXN_Detail['TXNSubCategory'] = 'Adjustment'
+#TXN_Detail['TXN SubCategory'] = 'Adjustment'
 
 # overwrite for Revenue & Billing
 TXNSubCategory_dict = {'USDAccrualRevenue':'USDAccrual', 'USDCashRevenue':'USDCash'}
 for a in list(TXNSubCategory_dict.keys()):
     TXN_Detail.loc[(TXN_Detail.TXNType==a),'TXNCategory'] = 'USDRevenue'
-    TXN_Detail.loc[(TXN_Detail.TXNType==a),'TXNSubCategory'] = TXNSubCategory_dict.get(a)
+    #TXN_Detail.loc[(TXN_Detail.TXNType==a),'TXNSubCategory'] = TXNSubCategory_dict.get(a)
     
 TXNSubCategory_dict = {'AccrualRevenue':'Accrual', 'CashRevenue':'Cash'}
 for a in list(TXNSubCategory_dict.keys()):
     TXN_Detail.loc[(TXN_Detail.TXNType==a),'TXNCategory'] = 'Revenue'
-    TXN_Detail.loc[(TXN_Detail.TXNType==a),'TXNSubCategory'] = TXNSubCategory_dict.get(a)
+    #TXN_Detail.loc[(TXN_Detail.TXNType==a),'TXNSubCategory'] = TXNSubCategory_dict.get(a)
 
 TXNSubCategory_dict = {'Charge':'Charge', 'GH04:Charged in Error':'Charged in Error'}
 for a in list(TXNSubCategory_dict.keys()):
     TXN_Detail.loc[TXN_Detail['TXNType'] == a,'TXNCategory'] = 'Billing'
-    TXN_Detail.loc[TXN_Detail['TXNType'] == a,'TXNSubCategory'] = TXNSubCategory_dict.get(a)
+# TXN_Detail.loc[TXN_Detail['TXNType'] == a,'TXNSubCategory'] = TXNSubCategory_dict.get(a)
 #TXN_Detail.loc[TXN_Detail['TXNType'] == 'GH04:Charged in Error','TXNType'] = 'Charged in Error'
 
-TXN_Detail.loc[TXN_Detail['TXNType'].isin(['Total Outstanding']),'TXNSubCategory'] = 'Outstanding'
+#TXN_Detail.loc[TXN_Detail['TXNType'].isin(['Total Outstanding']),'TXNSubCategory'] = 'Outstanding'
 TXN_Detail.loc[TXN_Detail['TXNType'].isin(['Total Outstanding']),'TXNType'] = 'Outstanding'
 
-TXN_Detail.loc[TXN_Detail['TXNType'].isin(['PayorPaid','PatientPaid','GH09:Refund & Refund Reversal']),'TXNSubCategory'] = 'Payment'
+#TXN_Detail.loc[TXN_Detail['TXNType'].isin(['PayorPaid','PatientPaid','GH09:Refund & Refund Reversal']),'TXNSubCategory'] = 'Payment'
 #TXN_Detail.loc[TXN_Detail['TXNType'] == 'GH09:Refund & Refund Reversal','TXNTypeDesc'] = 'Refund & Refund Reversal'
 
 
@@ -870,6 +865,11 @@ OLI_detail = OLI_data[['OLIID','Test','TestDeliveredDate'
 
 TXN_Detail = pd.merge(TXN_Detail,OLI_detail,
                        how='left', left_on='OLIID', right_on='OLIID')
+
+
+a = (TXN_Detail.Tier1Payor == 'Humana Inc. (CR085626)')
+TXN_Detail.loc[a, 'Tier1Payor'] = 'Humana, Inc. (CR085626)'
+TXN_Detail.loc[a, 'Tier1PayorName'] = 'Humana, Inc.'
 
 #########################################
 #   Add the Payor View Set assignment   #
@@ -954,12 +954,14 @@ print ('Claim2Rev_QDX_GHI :: write Claim2Rev report ', len(Claim2Rev), 'rows :: 
 output_file = 'Claim2Rev.txt'
 Claim2Rev_output.to_csv(cfg.output_file_path+output_file, sep='|',index=False)
 
+print ('Claim2Rev_QDX_GHI :: write Claim2Rev USD xlsx report ', len(Claim2Rev), 'rows :: start ::', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 output_file = 'Claim2Rev_USD.xlsx'
 writer = pd.ExcelWriter(cfg.output_file_path+output_file, engine='openpyxl', date_format='yyyy/mm/dd')
 Claim2Rev_USD_excel.to_excel(writer, sheet_name='Claim2Rev', index = False)
 writer.save()
 writer.close()
 
+print ('Claim2Rev_QDX_GHI :: write Claim2Rev Denial Research xlsx report ', len(Claim2Rev), 'rows :: start ::', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 output_file = 'Claim2Rev_DenialResearch.xlsx'
 writer = pd.ExcelWriter(cfg.output_file_path+output_file, engine='openpyxl', date_format='yyyy/mm/dd')
 Claim2Rev_Research.to_excel(writer, sheet_name='Claim2Rev_DenialResearch', index = False)
@@ -973,6 +975,7 @@ PreClaim_Status_SalesOps.to_excel(writer, index = False)
 writer.save()
 writer.close()
 '''
+print ('Claim2Rev_QDX_GHI :: write IBC Appeals xlsx report ', len(Claim2Rev), 'rows :: start ::', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
 output_file = 'IBC_Appeals_Detail.xlsx'
 writer = pd.ExcelWriter(cfg.output_file_path+output_file, engine='openpyxl', date_format='yyyy/mm/dd')
@@ -980,11 +983,47 @@ IBC_Appeals_Detail.to_excel(writer, index = False)
 writer.save()
 writer.close()
 
+print ('Claim2Rev_QDX_GHI :: write Prostate Appeals xlsx report ', len(Claim2Rev), 'rows :: start ::', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+
 output_file = 'Prostate_Appeals_Detail.xlsx'
 writer = pd.ExcelWriter(cfg.output_file_path+output_file, engine='openpyxl', date_format='yyyy/mm/dd')
 Prostate_Appeals_Detail.to_excel(writer, index = False)
 writer.save()
 writer.close()
 
+###############################################
+#    Writing a Data refresh log into Excel    #
+###############################################
+
+Dashboard_Dataset = [['Front-End Charts', 'Claim2Rev', 'Managed Care Analytics']
+                    ,['Payor Summary', 'Claim2Rev','Managed Care Analytics']
+                    ,['Appeals-Summary','Claim2Rev','Managed Care Analytics']
+                    ,['Appeals - Details', 'Claim2Rev','Managed Care Analytics']
+                    ,['IBC Appeals Detail','Claim2Rev','Managed Care Analytics']
+                    ,['Prostate Appeals Detail', 'Claim2Rev','Managed Care Analytics']
+                    ,['Adjustment-Detail','OLI_TXN_Detail','Managed Care Analytics']
+                    ,['All','Claim2Rev','Executive Appeal']
+                    ]
+
+data_refresh = pd.DataFrame(data=Dashboard_Dataset, columns=['Dashboard','Dataset','Tableau File'])
+data_refresh['Data Refresh'] = time.strftime('%b-%d, %Y, %H:%M:%S %Z')
+
+output_file = 'Data_Refresh_log.xlsx'
+writer = pd.ExcelWriter(cfg.output_file_path+output_file)
+data_refresh.to_excel(writer, index=False)
+writer.save()
+writer.close()
+
 print ('Hurray !!! Done Done Done',datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+
+'''   
+test code on writing into BOX
+CLIENT_ID='7vg4f7ul7vgton8722yd6s85ildt7z0'
+CLIENT_SECRET = 'yYBc525Gdi73DCgG8KTStWsjkzXgLmEk'
+ACCESS_TOKEN = 'IPe1uhPH1yGYY2UdtZqp6z3QYjUxksnY' ##developer token which is expired in a short time
+oauth = OAuth2(client_id = CLIENT_ID, client_secret=CLIENT_SECRET, access_token=ACCESS_TOKEN) # use to authenticate with the temporary developer token
+client = Client(oauth)
+me = client.user(user_id='me').get()
+print ('user_login: ' + me['login'])
+'''
 

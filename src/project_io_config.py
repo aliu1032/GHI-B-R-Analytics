@@ -11,10 +11,10 @@ Created on Jun 1, 2018
 #prep_file_path = "H:\\Projects\\Supplement\\"
 #sql_folder = "H:\\Projects\\SQL\\"
 
-refresh = 0
+refresh = 1
 
-input_file_path = "C:\\Users\\aliu\\Box Sync\\aliu Cloud Drive\\Analytics\\Payor Analytics\\Jun052018\\"
-output_file_path = "C:\\Users\\aliu\\Box Sync\\aliu Cloud Drive\\Analytics\\Payor Analytics\\Jun052018\\"
+input_file_path = "C:\\Users\\aliu\\Box Sync\\aliu Cloud Drive\\Analytics\\Payor Analytics\\Jun082018\\"
+output_file_path = "C:\\Users\\aliu\\Box Sync\\aliu Cloud Drive\\Analytics\\Payor Analytics\\Jun082018\\"
 prep_file_path = "C:\\Users\\aliu\\Box Sync\\aliu Cloud Drive\\workspace\\Supplement\\"
 
 prep_file_path = "C:\\Users\\aliu\\Box Sync\\aliu Cloud Drive\\workspace\\Supplement\\"

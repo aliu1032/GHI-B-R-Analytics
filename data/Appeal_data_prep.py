@@ -17,14 +17,7 @@ Jan 3: to do: need the ODSProd01.Quadax refresh, update the GetQDXData appeal_ca
 '''
 
 import pandas as pd
-#from datetime import datetime
 from data import GetQDXData as QData
-
-#import project_io_config as cfg
-#prep_file_path = "C:\\Users\\aliu\\Box Sync\\aliu Cloud Drive\\workspace\\Supplement\\"
-
-#file_path = "C:\\Users\\aliu\\Box Sync\\aliu Cloud Drive\\Analytics\\Payor Analytics\\May022018\\"
-#refresh = 0
 
 def make_appeal_data(file_path, refresh):
     
@@ -58,7 +51,11 @@ def make_appeal_data(file_path, refresh):
     # drop the appeal row if there isn't caseTicketNum and caseAccession number 
     appeal = pd.merge(appeal, case_reference, how='left', left_on='appealCaseNumber', right_on='caseCaseNum')
     appeal = appeal.drop('caseCaseNum',1)
-    appeal.rename(columns = {'caseTicketNum': 'appealTickNum', 'appealCaseNumber' : 'appealCaseNum','caseAccession':'appealAccession'}, inplace = True)
+    appeal.rename(columns = {'caseTicketNum': 'appealTickNum',
+                             'appealCaseNumber' : 'appealCaseNum',
+                             'caseAccession':'appealAccession',
+                             'appealLetDt' : 'appealReportDt',
+                             'appealDenialLetterDt':'appealDenialDt'}, inplace = True)
     appeal = appeal[~(appeal.appealTickNum.isnull() & appeal.appealAccession.isnull())]
 
     #########################################
@@ -67,7 +64,6 @@ def make_appeal_data(file_path, refresh):
     #########################################
     
     complete_appeal.loc[(complete_appeal.appealAmtAplRec != 0), 'appealAmtAplRec'] = complete_appeal.loc[(complete_appeal.appealAmtAplRec != 0), 'appealAmtAplRec'] * -1 
-#    complete_appeal.loc[(complete_appeal.appealAmtClmRec != 0), 'appealAmtAplRec'] = complete_appeal.loc[(complete_appeal.appealAmtClmRec != 0), 'appealAmtAplRec'] * -1 
 
     #########################################
     #  Data exploration                     #
@@ -116,7 +112,7 @@ def make_appeal_data(file_path, refresh):
     ## however, there are cases with multiple appeal levels enters on the same date
     a = appeal_status.groupby(['appealCaseNumber','appealEntryDt']).size()
     b = a[a>1].index.get_level_values('appealCaseNumber')
-    appeal_status[(appeal_status.appealCaseNumber.isin(b))][['appealCaseNumber','appealLvl','appealStatus','appealEntryDt','appealDenialLetterDt']]
+    appeal_status[(appeal_status.appealCaseNumber.isin(b))][['appealCaseNumber','appealLvl','appealStatus','appealEntryDt','appealDenialDt']]
     ## -> change to use also appealDenial Letter Dt??
     
     ## Double check data model in case file
@@ -148,24 +144,24 @@ def make_appeal_data(file_path, refresh):
     temp_appeal = appeal[['appealCaseNum','appealTickNum','appealAccession','appealInsCode',\
 #                          'appealLvl','appealStatus',\
                           'appealLvlCode','appealStatus','appealStatusDesc',\
-                          'appealDenialLetterDt','appealPendDt','appealEntryDt','appealDenReason','appealDenReasonDesc']].copy()
+                          'appealDenialDt','appealReportDt','appealEntryDt','appealDenReason','appealDenReasonDesc']].copy()
     # translate the appeallvl to appeallvl code by dict
 #    temp_appeal['appealLvlCode'] = temp_appeal['appealLvl'].astype(str).replace(appeal_level_dict)
                                  
     # for each row, add the appeal lvl code corresponding column label for dates, inscode, denreason
-    temp_appeal['Lvl_DenialLetterDt'] = temp_appeal.appealLvlCode + '_DenialLetterDt'
+    temp_appeal['Lvl_DenialDt'] = temp_appeal.appealLvlCode + '_DenialDt'
     temp_appeal['Lvl_InsCode'] = temp_appeal.appealLvlCode + '_InsCode'
     temp_appeal['Lvl_EntryDt'] = temp_appeal.appealLvlCode + '_EntryDt'
-    temp_appeal['Lvl_PendDt'] = temp_appeal.appealLvlCode + '_PendDt'    
+    temp_appeal['Lvl_ReportDt'] = temp_appeal.appealLvlCode + '_ReportDt'    
     temp_appeal['Lvl_DenReason'] = temp_appeal.appealLvlCode + '_DenReason'
     temp_appeal['Lvl_Status'] = temp_appeal.appealLvlCode + '_Status' ###
 
     LvlStatus = pd.pivot_table(temp_appeal, index= ['appealCaseNum','appealTickNum'],\
                               columns = 'Lvl_Status', values='appealStatus', aggfunc='first')    
     DenialDt = pd.pivot_table(temp_appeal, index= ['appealCaseNum','appealTickNum'],\
-                              columns = 'Lvl_DenialLetterDt', values='appealDenialLetterDt', aggfunc='first')
-    PendDt = pd.pivot_table(temp_appeal, index= ['appealCaseNum','appealTickNum'],\
-                              columns = 'Lvl_PendDt', values='appealPendDt', aggfunc='first')
+                              columns = 'Lvl_DenialDt', values='appealDenialDt', aggfunc='first')
+    ReportDt = pd.pivot_table(temp_appeal, index= ['appealCaseNum','appealTickNum'],\
+                              columns = 'Lvl_ReportDt', values='appealReportDt', aggfunc='first')
     Lvl_InsCode = pd.pivot_table(temp_appeal, index= ['appealCaseNum','appealTickNum'],\
                               columns = 'Lvl_InsCode', values='appealInsCode', aggfunc='first')
     EntryDt = pd.pivot_table(temp_appeal, index= ['appealCaseNum','appealTickNum'],\
@@ -181,7 +177,7 @@ def make_appeal_data(file_path, refresh):
     OLIappealLvlCnt = temp_appeal.groupby(['appealAccession']).size().rename('OLIappealLvlCnt').to_frame()  # number of levels for the OLI, sometime, an OLI can have mutliple cases
  
     # the DenialDt, EntryDt, LvlStatus are dataframe with appealCaseNumber as the index, thus concat function join the columns by index
-    appealcase_wide = pd.concat([CaseappealLvlCnt, Lvl_InsCode, LvlDenReason, LvlStatus, DenialDt, PendDt, EntryDt, Lvl_StatusDesc], axis=1).reset_index()
+    appealcase_wide = pd.concat([CaseappealLvlCnt, Lvl_InsCode, LvlDenReason, LvlStatus, DenialDt, ReportDt, EntryDt, Lvl_StatusDesc], axis=1).reset_index()
     appealcase_wide = pd.merge(appealcase_wide, case_reference,
                                how='left', left_on = ['appealCaseNum','appealTickNum'], right_on = ['caseCaseNum','caseTicketNum'])
     appealcase_wide.rename(columns={'caseAccession':'appealAccession'}, inplace=True)
@@ -190,40 +186,48 @@ def make_appeal_data(file_path, refresh):
     appeal_LvlCode_Master = ['A1', 'A2','A3', 'A4','A5', 'ER','L1', 'L2', 'L3']
     for x in (set(appeal_LvlCode_Master) - set(temp_appeal.appealLvlCode.unique())):
         appealcase_wide[x] = ''
-        appealcase_wide[x + '_DenialLetterDt'] = ''
-        appealcase_wide[x + '_PendDt'] = ''        
+        appealcase_wide[x + '_DenialDt'] = ''
+        appealcase_wide[x + '_ReportDt'] = ''        
         appealcase_wide[x + '_EntryDt'] = ''
         appealcase_wide[x + '_InsCode'] = ''
         appealcase_wide[x + '_DenReason'] = ''
         appealcase_wide[x + '_Status'] = ''
  
-    appealcase_wide['A4_PendDt'] = ''
-    appealcase_wide['L2_PendDt'] = ''
+    appealcase_wide['A4_ReportDt'] = ''
+    appealcase_wide['L2_ReportDt'] = ''
     
    
     # find the OLI latest denial reason from the latest record.
-    # use appealDenialLetterDt as it has less missing data than appealEntryDt
+    # use appealDenialDt as it has less missing data than appealEntryDt
     # Jan 3: change to align with BI code
     # use appealEntryDt, if null, then look up the appealDenDt
-    a = temp_appeal.groupby(['appealAccession'])['appealDenialLetterDt'].idxmax(skipna = True)
+    a = temp_appeal.groupby(['appealAccession'])['appealDenialDt'].idxmax(skipna = True)
     #a = temp_appeal.groupby(['appealAccession'])['appealEntryDt'].idxmax(skipna = True)
     OLI_latest_denial = temp_appeal.loc[a][['appealCaseNum','appealTickNum','appealAccession','appealInsCode',\
                                             'appealLvlCode', 'appealDenReason','appealDenReasonDesc',\
-                                            'appealPendDt','appealEntryDt','appealDenialLetterDt']].reset_index(drop = True)
+                                            'appealEntryDt','appealDenialDt']].reset_index(drop = True)
+                                            # 'appealReportDt',
     OLI_latest_denial.rename(columns = {'appealLvlCode' : 'Last Appeal level',
                                         'appealDenReason':'lastappealDenReason',
                                         'appealDenReasonDesc':'lastappealDenReasonDesc',
                                         'appealEntryDt' : 'lastappealEntryDt',                                        
                                         'appealInsCode':'lastDenialInsCode',
-                                        'appealDenialLetterDt':'lastappealDenialLetterDt'}, inplace=True)
+                                        'appealDenialDt':'lastappealDenialDt'}, inplace=True)
     OLI_latest_denial = pd.merge(OLI_latest_denial, OLIappealLvlCnt, how = 'left', left_on=['appealAccession'], right_index=True)
     
+    # find the OLI first denial and get the appealReportDt
+    # there are appealAccession without any information on the ReportDt. 
+    # when groupby to find the init appealReportDt, OLI with no reportdt causes issue
+    a = temp_appeal.groupby(['appealAccession'])['appealEntryDt'].idxmin(skipna = True)
+    OLI_init_denial = temp_appeal.loc[a][['appealAccession','appealEntryDt']].reset_index(drop = True)
+    OLI_init_denial.columns = ['appealAccession','firstappealEntryDt']
+    OLI_latest_denial = pd.merge(OLI_latest_denial, OLI_init_denial, how = 'left', on=['appealAccession'])
 
     # add the OLI_latest_denial information to the appealcase_wide. Note: 1 appealAccession has 1..N appealCaseNum
     appealcase_wide = pd.merge(appealcase_wide, OLI_latest_denial[['appealAccession','OLIappealLvlCnt','Last Appeal level',
                                                                    'lastappealDenReason','lastappealDenReasonDesc',
                                                                    'lastappealEntryDt',
-                                                                   'lastDenialInsCode','lastappealDenialLetterDt']],
+                                                                   'lastDenialInsCode','lastappealDenialDt', 'firstappealEntryDt']],
                                how='left',left_on=['appealAccession'],right_on=['appealAccession'])
                                        
     #create appeal_history_wide with complete status
@@ -267,7 +271,7 @@ def make_appeal_data(file_path, refresh):
                      'appealLvl','appealLvlCode','appealLvlDesc',
                      'appealStatus','appealStatusDesc',
                      'appealSuccess',
-                     'appealDenialLetterDt','appealPendDt',
+                     'appealDenialDt','appealReportDt',
                      'appealAllowed','CaseappealLvlCnt', 'OLIappealLvlCnt']].sort_values(by=['appealAccession','appealCaseNum','appealTickNum'])
 
        
@@ -287,21 +291,21 @@ def make_appeal_data(file_path, refresh):
                     'A1_DenReason', 'A2_DenReason', 'A3_DenReason','A4_DenReason', 'A5_DenReason',
                     'ER_DenReason','L1_DenReason', 'L2_DenReason', 'L3_DenReason',
                     
-                    'A1_DenialLetterDt', 'A2_DenialLetterDt', 'A3_DenialLetterDt', 'A4_DenialLetterDt', 'A5_DenialLetterDt', 
-                    'ER_DenialLetterDt','L1_DenialLetterDt', 'L2_DenialLetterDt', 'L3_DenialLetterDt',
+                    'A1_DenialDt', 'A2_DenialDt', 'A3_DenialDt', 'A4_DenialDt', 'A5_DenialDt', 
+                    'ER_DenialDt','L1_DenialDt', 'L2_DenialDt', 'L3_DenialDt',
                     
                     'A1_EntryDt', 'A2_EntryDt', 'A3_EntryDt', 'A4_EntryDt', 'A5_EntryDt',
                     'ER_EntryDt', 'L1_EntryDt', 'L2_EntryDt', 'L3_EntryDt',
                     
-                    'A1_PendDt', 'A2_PendDt', 'A3_PendDt', 'A4_PendDt', 'A5_PendDt',
-                    'ER_PendDt', 'L1_PendDt', 'L2_PendDt', 'L3_PendDt',
+                    'A1_ReportDt', 'A2_ReportDt', 'A3_ReportDt', 'A4_ReportDt', 'A5_ReportDt',
+                    'ER_ReportDt', 'L1_ReportDt', 'L2_ReportDt', 'L3_ReportDt',
                     
                     'OLIappealLvlCnt',
                     
                     'appealReqNum', 'appealDOS',
                     'appealInsCode', 'appealInsFC', 'Last Appeal level', 'appealDenReason', 'appealDenReasonDesc',
 
-                    'lastDenialInsCode','lastappealDenialLetterDt','lastappealEntryDt',
+                    'lastDenialInsCode','lastappealDenialDt','firstappealEntryDt','lastappealEntryDt',
 
                     'appealAmtChg', 'appealAmtChgExp', 'appealAmtAllow', 'appealAmtClmRec',
                     'appealAmt', 'appealAmtAplRec', 'appealRptDt', 'appealSuccess',
