@@ -109,6 +109,14 @@ def OLI_detail(usage, folder, refresh=1 ):
     output.CurrentTicketNumber = output.CurrentTicketNumber.replace('0',np.nan)  
     
     output.loc[output.RiskGroup.isnull(),'RiskGroup'] = 'Unknown'
+    
+    output['HCPProvidedGleasonScore'].fillna('', inplace = True)
+    output['HCPProvidedGleasonScore'] = output['HCPProvidedGleasonScore'].astype(str)
+    output['HCPProvidedClinicalStage'].fillna('', inplace = True)
+    output['HCPProvidedClinicalStage'] = output['HCPProvidedClinicalStage'].astype(str)
+
+    #output['HCPProvidedPSA'].fillna('', inplace = True)
+    
     #########################################################################################
     #  Enrich Data                                                                          #
     #  - Reading the Financial Category code from GHI. GHI import and track the FC for      #
@@ -125,6 +133,51 @@ def OLI_detail(usage, folder, refresh=1 ):
     output = pd.merge(output, inscode, how='left',\
                                     left_on=['Tier4PayorID'], right_on=['insAltId'])
     output = output.drop(['QDXInsCode','insAltId'],1)
+       
+    output['SFDCSubmittedNCCNRisk'] = output['SubmittedNCCNRisk']
+    '''
+    Calculate the NCCN refinedS Intermediate Favorable and UnFavorable Risk
+    '''
+    def NCCN_Update(Gleason, PSA, Stage, OrgNCCN):
+        if ((Gleason=='') and (Stage=='')):
+            return OrgNCCN
+        if (Gleason==''):
+            #or (Stage=='') or (PSA==0.0)):
+            return 'Intermediate favorability indeterminate'
+        elif (Gleason == '4+3'):
+            return 'Intermediate Unfavorable'
+        elif Gleason == '3+3':
+            if PSA <10:
+                return 'Intermediate Favorable'
+            elif PSA < 20:  ## PSA 10 to 19
+                if (Stage == ''):
+                    return 'Undetermined'
+                elif Stage in ['T1c', 'T2a', 'T1C', 'T2A']:
+                    return 'Intermediate Favorable'
+                else:
+                    return 'Intermediate Unfavorable'
+            else:
+                return 'Intermediate Unfavorable'
+        elif Gleason == '3+4':
+            if PSA < 10:
+                if (Stage == ''):
+                    return 'Undetermined'
+                elif Stage in ['T1c','T2a','T1C','T2A']:
+                    return 'Intermediate Favorable'
+                else:
+                    return 'Intermediate Unfavorable'
+            else:
+                return 'Intermediate Unfavorable'
+    '''
+    temp = output[(output.OrderStartDate>='2017-05-01') & (output.Test=='Prostate')]
+    temp['RevisedNCCN'] = temp.apply(lambda x : NCCN_Update(x['HCPProvidedGleasonScore'], x['HCPProvidedPSA'], x['HCPProvidedClinicalStage'], x['SFDCSubmittedNCCNRisk']), axis = 1)
+    output_file = 'Check_NCCN_Calculation.txt'
+    output_file_path = folder
+    temp.to_csv(output_file_path+output_file, sep='|',index=False)
+    '''
+    ###
+    cond = (output.OrderStartDate>='2017-01-01') & (output.Test=='Prostate') & (output.SFDCSubmittedNCCNRisk == 'Intermediate Risk')
+    output.loc[cond ,'SubmittedNCCNRisk'] = output.loc[cond].apply(lambda x : NCCN_Update(x['HCPProvidedGleasonScore'], x['HCPProvidedPSA'], x['HCPProvidedClinicalStage'], x['SFDCSubmittedNCCNRisk']), axis = 1)
     
     #################################################
     #  Output OLI detail for the given usage        #
@@ -285,6 +338,30 @@ def getPTC (usage, folder, refresh = 1):
         
     return(output)
 
+
+def getPTV (usage, folder, refresh = 1):
+    
+    print ("function : GetGHIData: get PTV :: start :: ", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    print ('usage = ', usage,'\nrefresh = ', refresh, '\nfolder is ', folder, "\n\n")
+    
+    #server = 'EDWStage'    
+    database = 'StagingDB'
+    target = server + '_' + database + '_' + 'SFDC_PTV.txt'
+    
+    if refresh:
+        cnxn = pyodbc.connect('Trusted_Connection=yes',DRIVER='{ODBC Driver 13 for SQL Server}',SERVER=server)
+
+        f = open(cfg.sql_folder + 'StagingDB_SFDC_PTV.sql')
+        tsql = f.read()
+        f.close()
+
+        output = pd.read_sql(tsql, cnxn)
+        output.to_csv(folder + target, sep='|', index=False)
+        
+    else:
+        output = pd.read_csv(folder + target, sep="|", encoding="ISO-8859-1")
+        
+    return(output)
 #################################################
 #   stgBills                                    #
 #################################################

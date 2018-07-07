@@ -550,16 +550,37 @@ writer.save()
 writer.close()
 '''
 
+'''
+Quadax provides the appeal result = success or failed for completed appeal.
+Derive appeal result to include In process and Removed based on the billing case status
+'''
+
+### insert flags for tableau reporting use ###
+Claim2Rev['Failed'], Claim2Rev['Succeed'], Claim2Rev['In Process'], Claim2Rev['Removed'], Claim2Rev['IsAppeal'], Claim2Rev['CompletedAppeal'] = 0,0,0,0,0,0
+
+Claim2Rev.loc[~Claim2Rev.appealDenReason.isnull(), 'IsAppeal'] = 1
+
 Claim2Rev.loc[Claim2Rev.appealSuccess=='1','appealResult'] = 'Success'
+Claim2Rev.loc[Claim2Rev.appealSuccess=='1','Succeed'] = 1
+Claim2Rev.loc[Claim2Rev.appealSuccess=='1','CompletedAppeal'] = 1
+
 Claim2Rev.loc[Claim2Rev.appealSuccess=='0','appealResult'] = 'Failed'
+Claim2Rev.loc[Claim2Rev.appealSuccess=='0','Failed'] = 1
+Claim2Rev.loc[Claim2Rev.appealSuccess=='0','CompletedAppeal'] = 1
+
 Claim2Rev.loc[(Claim2Rev.appealSuccess.isnull()) & ~(Claim2Rev.appealDenReason.isnull()), 'appealResult'] = 'In Process'
+Claim2Rev.loc[(Claim2Rev.appealSuccess.isnull()) & ~(Claim2Rev.appealDenReason.isnull()), 'In Process'] = 1
 
+
+# Scenario Billing Status is in 'Completed, Due from Patient, Final Review', the Appeal tickets are abandoned
 QDX_complete_appeal_status = ['Completed','Final Review','Due from Patient']
-
-# Scenario Billing Status is in 'Completed, Due from Patient, Final Review', the Appeal tickets are aborted (removed)
 a = Claim2Rev.appealResult == 'In Process'
 b = Claim2Rev.BillingCaseStatusSummary2.isin(QDX_complete_appeal_status)
 Claim2Rev.loc[a & b, 'appealResult'] = 'Removed'
+Claim2Rev.loc[a & b, 'Removed'] = 1
+
+
+###think through the change status...it is impacting the fully Adjudicated count
 
 # Scenario appeal case is open with the current ticket for the OLI, BillingCaseStatusSummary2 is not 'Appeal'
 c = Claim2Rev.BillingCaseStatusSummary2 == 'Appeals'
@@ -607,12 +628,11 @@ Claim2Rev.loc[a, 'Tier1PayorName'] = 'Humana, Inc.'
 
 #############################################################################
 #Rearranging Columns
-Claim2Rev_output = Claim2Rev[['OrderID',
-        'OLIID', 'Test', 'TestDeliveredDate', 'CurrentQDXTicketNumber','QDXTickCnt','QDXCaseCnt',
+Claim2Rev_output = Claim2Rev[['OrderID', 'OLIID', 'Test', 
+        'TestDeliveredDate', 'CurrentQDXTicketNumber','QDXTickCnt','QDXCaseCnt',
         'BillingCaseStatusSummary2', 'BillingCaseStatusCode', 'BillingCaseStatus',
         'BilledCurrency', 'ListPrice', 'ContractedPrice', 'Total Outstanding',
-        'Total Billed',
-        'Charge',
+        'Total Billed', 'Charge',
 
 #        'ClmAmtRec', 
         'Total Payment',
@@ -646,20 +666,25 @@ Claim2Rev_output = Claim2Rev[['OrderID',
 #        'AccountingPeriodDate_init', 'AccountingPeriodDate_last',
 #        'AllowedAmt_Outliner', 'AllowedAmt', 'DeductibleAmt', 'CoinsAmt'
 
-        'appealCaseNum','CurrentQDXCaseNumber',
+#        'appealCaseNum',
+        'CurrentQDXCaseNumber',
         'A1_Status', 'A2_Status', 'A3_Status', 'A4_Status', 'A5_Status',
         'ER_Status', 'L1_Status', 'L2_Status', 'L3_Status',
         
-        'A1', 'A2', 'A3', 'A4', 'A5', 'ER', 'L1', 'L2', 'L3',
+#        'A1', 'A2', 'A3', 'A4', 'A5', 'ER', 'L1', 'L2', 'L3',  #spelled out status, not needed in Tableau
         'Last Appeal level', 'firstappealEntryDt','lastappealEntryDt','appealRptDt',
         'appealDenReason','appealDenReasonDesc',
-        'appealAmtChg', 'appealAmtChgExp',
-        'appealAmtAllow', 'appealAmtClmRec', 'appealAmt', 'appealAmtAplRec',
-        'appealSuccess', 'appealCurrency', 'appealResult',
+#        'appealCurrency','appealAmtChg', 'appealAmtChgExp','appealAmtAllow', 'appealAmtClmRec', 
+        'appealAmt', 'appealAmtAplRec',
+#        'appealSuccess', 
+        'appealResult',
+        
+        'IsAppeal','CompletedAppeal','Failed','Succeed','In Process','Removed',
         
         'Specialty','NodalStatus','RecurrenceScore','PatientAgeAtOrderStart',
-        'RiskGroup','ReportingGroup','ClinicalStage',
-        'EstimatedNCCNRisk', 'SubmittedNCCNRisk','FavorablePathologyComparison',
+        'RiskGroup','ReportingGroup','HCPProvidedClinicalStage','HCPProvidedGleasonScore','HCPProvidedPSA',
+        'EstimatedNCCNRisk', 'SubmittedNCCNRisk', 'SFDCSubmittedNCCNRisk','FavorablePathologyComparison',
+        
         
         'priorAuthCaseNum','priorAuthEnteredDt','priorAuthEnteredTime', 'priorAuthDate',
         'priorAuthResult','priorAuthReqDesc','priorAuthDate','priorAuthNumber',
@@ -884,8 +909,7 @@ for i in Payor_view.Set.unique() :
     Claim2Rev_output.loc[Claim2Rev_output.Tier2PayorID.isin(list(code)),i] = '1'
     
     code = Payor_view[Payor_view.Set==i].Tier2PayorID
-    TXN_Detail.loc[TXN_Detail.Tier2PayorID.isin(list(code)),i] = '1'
-    
+    TXN_Detail.loc[TXN_Detail.Tier2PayorID.isin(list(code)),i] = '1'   
 
 #########################################
 #   Special Data set for users          #
@@ -902,7 +926,7 @@ PreClaim_Status_SalesOps = Claim2Rev[Cond][['OrderID','OLIID', 'Test','priorAuth
 Cond = (Claim2Rev.BusinessUnit == 'Domestic') & \
        (Claim2Rev.Test == 'IBC') & (~Claim2Rev.appealResult.isnull())
        
-IBC_Appeals_Detail = Claim2Rev_output[Cond][['Tier1PayorID','Tier1PayorName',
+IBC_Appeals_Detail = Claim2Rev[Cond][['Tier1PayorID','Tier1PayorName',
                                              'Tier2PayorID', 'Tier2PayorName',
                                              'Tier4PayorID', 'Tier4PayorName',
                                              'FinancialCategory',
@@ -922,7 +946,7 @@ IBC_Appeals_Detail.columns =  [['Tier1PayorID','Tier1PayorName','Tier2PayorID', 
 Cond = (Claim2Rev.BusinessUnit == 'Domestic') & \
        (Claim2Rev.Test == 'Prostate') & (~Claim2Rev.appealResult.isnull())
        
-Prostate_Appeals_Detail = Claim2Rev_output[Cond][['Tier1PayorID','Tier1PayorName',
+Prostate_Appeals_Detail = Claim2Rev[Cond][['Tier1PayorID','Tier1PayorName',
                                              'Tier2PayorID', 'Tier2PayorName',
                                              'Tier4PayorID', 'Tier4PayorName',
                                              'FinancialCategory',
@@ -954,6 +978,7 @@ print ('Claim2Rev_QDX_GHI :: write Claim2Rev report ', len(Claim2Rev), 'rows :: 
 output_file = 'Claim2Rev.txt'
 Claim2Rev_output.to_csv(cfg.output_file_path+output_file, sep='|',index=False)
 
+'''
 print ('Claim2Rev_QDX_GHI :: write Claim2Rev USD xlsx report ', len(Claim2Rev), 'rows :: start ::', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 output_file = 'Claim2Rev_USD.xlsx'
 writer = pd.ExcelWriter(cfg.output_file_path+output_file, engine='openpyxl', date_format='yyyy/mm/dd')
@@ -967,6 +992,7 @@ writer = pd.ExcelWriter(cfg.output_file_path+output_file, engine='openpyxl', dat
 Claim2Rev_Research.to_excel(writer, sheet_name='Claim2Rev_DenialResearch', index = False)
 writer.save()
 writer.close()
+'''
 
 '''
 output_file = 'PreClaim_Status_SalesOps.xlsx'
@@ -974,6 +1000,8 @@ writer = pd.ExcelWriter(output_file_path+output_file, engine='openpyxl', date_fo
 PreClaim_Status_SalesOps.to_excel(writer, index = False)
 writer.save()
 writer.close()
+'''
+
 '''
 print ('Claim2Rev_QDX_GHI :: write IBC Appeals xlsx report ', len(Claim2Rev), 'rows :: start ::', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
@@ -990,7 +1018,7 @@ writer = pd.ExcelWriter(cfg.output_file_path+output_file, engine='openpyxl', dat
 Prostate_Appeals_Detail.to_excel(writer, index = False)
 writer.save()
 writer.close()
-
+'''
 ###############################################
 #    Writing a Data refresh log into Excel    #
 ###############################################
