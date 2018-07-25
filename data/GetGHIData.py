@@ -140,10 +140,10 @@ def OLI_detail(usage, folder, refresh=1 ):
     '''
     def NCCN_Update(Gleason, PSA, Stage, OrgNCCN):
         if ((Gleason=='') and (Stage=='')):
-            return OrgNCCN
+            return OrgNCCN # 'Intermediate favorability indeterminate'
         if (Gleason==''):
             #or (Stage=='') or (PSA==0.0)):
-            return 'Intermediate favorability indeterminate'
+            return OrgNCCN # 'Intermediate favorability indeterminate'
         elif (Gleason == '4+3'):
             return 'Intermediate Unfavorable'
         elif Gleason == '3+3':
@@ -151,7 +151,7 @@ def OLI_detail(usage, folder, refresh=1 ):
                 return 'Intermediate Favorable'
             elif PSA < 20:  ## PSA 10 to 19
                 if (Stage == ''):
-                    return 'Undetermined'
+                    return OrgNCCN # 'Intermediate favorability indeterminate'
                 elif Stage in ['T1c', 'T2a', 'T1C', 'T2A']:
                     return 'Intermediate Favorable'
                 else:
@@ -161,7 +161,7 @@ def OLI_detail(usage, folder, refresh=1 ):
         elif Gleason == '3+4':
             if PSA < 10:
                 if (Stage == ''):
-                    return 'Undetermined'
+                    return OrgNCCN # 'Intermediate favorability indeterminate'
                 elif Stage in ['T1c','T2a','T1C','T2A']:
                     return 'Intermediate Favorable'
                 else:
