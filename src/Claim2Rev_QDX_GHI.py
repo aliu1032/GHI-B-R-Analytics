@@ -76,10 +76,6 @@ priorAuth = QData.priorAuth('Claim2Rev', cfg.input_file_path, refresh)
 from data import GetGHIData as GData
 Revenue_data = GData.revenue_data('Claim2Rev', cfg.input_file_path, refresh)
 OLI_data = GData.OLI_detail('Claim2Rev', cfg.input_file_path, refresh)
-#OLI_utilization = GData.OLI_detail('Utilization', input_file_path, 0)
-
-#OSM_Patient_Age_at_Biopsy__c
-#DCIS_GHI_Calculated_Age_at_Diagnosis__c
 
 ###############################################################
 #   Read QDX Appeal Data                                      #
@@ -99,7 +95,15 @@ ClaimTicket_appeal_wide = appeal_data['ClaimTicket_appeal_wide']
 #   the max Ticket Number is not always mapped to the                         #
 #   max Case Number, and vice versa                                           #
 #                                                                             #
-#   Max. Ticket Number precede max. case number as current                    #
+#   Examples:                                                                 #
+#   OL001099336  938752          1152226
+#   Claim_bill[Claim_bill.OLIID=='OL000605423'][['OLIID','TicketNumber','CaseNumber']]
+#   OLIID TicketNumber CaseNumber
+#   301659  OL000605423       627308     811520
+#   301660  OL000605423       627308     938592
+#   301964  OL000605423       627400     817204
+#                                                                             #
+#   Take max. Ticket Number over max. case number as current                  #
 #   Step 1. Group by OLI, retrieve the max Ticket Number                      #
 #   Step 2. Use the mapped case number as the Current Case Number             #
 #           If there are multiple case number, then use the max Case Number   #
@@ -125,20 +129,13 @@ temp3 = Claim_bill.groupby(['OLIID','TicketNumber'])['CaseNumber']  # this retur
 #c = temp3.apply(lambda x : x.values[x.values.argmax()]) # iterate each group, return the values of the max value of the series, this is the case number
 d = temp3.apply(lambda x : x.keys()[x.values.argmax()]) # iterate each group, return the index of the max value of the series, this is the db index number
 
-#OL001099336  938752          1152226
-#Claim_bill[Claim_bill.OLIID=='OL000605423'][['OLIID','TicketNumber','CaseNumber']]
-#OLIID TicketNumber CaseNumber
-#301659  OL000605423       627308     811520
-#301660  OL000605423       627308     938592
-#301964  OL000605423       627400     817204
 
 temp1 = Claim_bill.loc[d][['OLIID','TicketNumber','CaseNumber','TXNDate']]
-
 temp2 = temp1.groupby(['OLIID']).agg({'TXNDate':'idxmax'}).TXNDate
 
 Current_ticket = Claim_bill.loc[temp2][['OLIID','TicketNumber', 'CaseNumber',
-                                                   'BillingCaseStatusSummary1', 'BillingCaseStatusSummary2',
-                                                   'BillingCaseStatusCode', 'BillingCaseStatus']]
+                                        'BillingCaseStatusSummary1', 'BillingCaseStatusSummary2',
+                                        'BillingCaseStatusCode', 'BillingCaseStatus']]
 
 Current_ticket.rename(columns = {'TicketNumber': 'CurrentQDXTicketNumber'}, inplace=True)
 TickCnt = (pd.pivot_table(Claim_bill, index=['OLIID'], values = 'TicketNumber',\
@@ -163,6 +160,25 @@ Current_reference = Current_reference[['OLIID','CurrentQDXTicketNumber','QDXTick
                                        'BillingCaseStatusCode', 'BillingCaseStatus']]
 
 OLI_data = pd.merge(OLI_data, Current_reference, how='left', on='OLIID')
+
+## IsClaim is whether a TicketNumber is present
+## run through one more time as this script updated the current ticket number
+#a = (OLI_data.IsClaim == 0) & ~(OLI_data.CurrentQDXTicketNumber.isnull())
+OLI_data['IsClaim'] = 1
+
+a = (OLI_data.CurrentQDXTicketNumber.isnull())
+OLI_data.loc[a,'IsClaim'] = 0
+
+'''
+# then void 'IsClaim' if the CLaim is 'completed with CIE' -------
+# On Jul23: keep the CIE, change the pie chart to only show %
+a = (OLI_data.IsClaim==1) & (OLI_data.BillingCaseStatusSummary2 == 'Completed') & (OLI_data.BillingCaseStatus=='Charged In Error')
+OLI_data.loc[a,'IsClaim'] = 0
+'''
+
+# change 'In' to 'in', make the data value consistent
+OLI_data.loc[OLI_data.BillingCaseStatusSummary2 == 'Claim In Process','BillingCaseStatusSummary2'] = 'Claim in Process'
+
 
 '''
 ## section to check the Current Case and CurrentTicket number mapping
@@ -251,7 +267,7 @@ pull_rows = temp.AccountingPeriodDate
 
 Summarized_Rev_key = Revenue_data.loc[pull_rows][['OLIID','Currency']].copy()
 
-# Nov 05: only get the OLIID and Currency; will get the Test and Test Delivered Date from OLI by merging the table
+# Get the OLIID and Currency; will get the Test and Test Delivered Date from OLI by merging the table
 # At OLI level, use the Payor of the current ticket
 OLI_rev = pd.merge(Summarized_Rev_key, Summarized_Revenue, how='left', left_on=['OLIID'], right_on=['OLIID'])
 
@@ -265,8 +281,8 @@ print ('Claim2Rev_QDX_GHI :: Aggregate Bill, Payment, Adjustment numbers per OLI
 #this throw the view-vs-copy warning
 temp = ['ClmAmtRec','ClmAmtAdj']
 for a in temp:
-    Claim_bill.loc[Claim_bill[a] != 0.0, a].apply(lambda x : x * -1)
-#    Claim_bill.loc[Claim_bill[a] != 0.0, a] = Claim_bill.loc[Claim_bill[a] != 0.0, a] * -1
+#    Claim_bill.loc[Claim_bill[a] != 0.0, a].apply(lambda x : x * -1)
+    Claim_bill.loc[Claim_bill[a] != 0.0, a] = Claim_bill.loc[Claim_bill[a] != 0.0, a] * -1
 
 aggregations = {
     'TXNAmount': 'sum',
@@ -394,18 +410,16 @@ OLI_data.loc[a,'ListPrice'] = temp.loc[a,'Std_ListPrice']
 #           Customer Status [Canceled, Closed, In-Lab, Processing, Submitting]           #
 #  is insufficient to tell if an order is closed because delivered, canceled or failed   #
 ##########################################################################################
-# keep the Original_OLI_TestDelivered, overwrite TestDelivered = 0 to 1 and Overrider IsClaim Statust
-# if there is a current Ticket Number
+# keep the Original_OLI_TestDelivered, 
+# if there is current Ticket Number, correct the TestDelivered = 0 to 1 and IsClaim = 0 to 1
 OLI_data['Original_OLI_TestDelivered'] = OLI_data['TestDelivered']
 a = (OLI_data.TestDelivered == 0) & ~(OLI_data.CurrentQDXTicketNumber.isnull())
 OLI_data.loc[a,'TestDelivered'] = 1
 
-## Jan 9: update TestDeliveredDate using DateofService if it is null
-## Jan 9, need to update into somewhere for OLI_TXN - it should be include as it is reading the Test Delivered Date from OLI_data after this change.
+# Update TestDeliveredDate using DateofService if TestDeliveredDate is not available
+a = (OLI_data.TestDelivered == 1 & OLI_data.TestDeliveredDate.isnull())
 OLI_data.loc[a, 'TestDeliveredDate'] = OLI_data.loc[a,'DateOfService']
 
-# change 'In' to 'in', make the data value consistent
-OLI_data.loc[OLI_data.BillingCaseStatusSummary2 == 'Claim In Process','BillingCaseStatusSummary2'] = 'Claim in Process'
 '''
 select OrderLineItemId, CaseStatusSummaryLevel2, BillingCaseStatusCode 
 from StagingDB.Analytics.stgOrderDetail
@@ -420,7 +434,6 @@ summary = OLI_data.pivot_table(index = ['BillingCaseStatusSummary2'], columns = 
 summary = OLI_data.pivot_table(index = ['BillingCaseStatusSummary2'], values='IsFullyAdjudicated', aggfunc='sum', margins=True)
 summary = OLI_data.pivot_table(index = ['BillingCaseStatusSummary2'], columns = 'IsFullyAdjudicated', values='OLIID', aggfunc='count', margins=True)
 '''
-
 ## Combining Order & OLI Cancellation reason Get the cancel reason from order/oli cancellation reason and vice versa
 a = OLI_data.OrderLineItemCancellationReason.isnull() & ~(OLI_data.OrderCancellationReason.isnull())
 OLI_data.loc[a,'OrderLineItemCancellationReason'] = OLI_data.loc[a,'OrderCancellationReason']
@@ -428,14 +441,16 @@ OLI_data.loc[a,'OrderLineItemCancellationReason'] = OLI_data.loc[a,'OrderCancell
 a = ~OLI_data.OrderLineItemCancellationReason.isnull() & (OLI_data.OrderCancellationReason.isnull())
 OLI_data.loc[a,'OrderCancellationReason'] = OLI_data.loc[a,'OrderLineItemCancellationReason']
 
+
 # Derive the Test Order Status using the Customer Status, Order & OLI cancellation reason, Failure Code, Test Delivered Flag
 # Scenario: Test Delivered with no cancellation and no failure code
 a = (OLI_data.TestDelivered==1)
 OLI_data.loc[a,'Status'] = 'Delivered'
 OLI_data.loc[a,'Status Notes'] = "Test Delivered = " + OLI_data.loc[a,'TestDelivered'].astype(str)
 
+### Once cancellation reason is stamped, it is not removed even the cancellation decision is reverted
 # Scenario: Test Delivered with either cancellation or failure code
-## if TestDelivered == 1, if cancel reason and/or failure reason is not null, still is a TestDelivered
+# TestDelivered == 1, cancel reason and/or failure reason is not null, still is a TestDelivered
 b = ~(OLI_data.OrderLineItemCancellationReason.isnull())
 c = ~(OLI_data.FailureMessage.isnull())
 x = a & (b | c)
@@ -446,14 +461,17 @@ Delivered_w_issues = OLI_data[x]
 output_file = 'Delivered_w_issues.txt'
 Delivered_w_issues.to_csv(cfg.output_file_path+output_file, sep='|',index=False)
 
-#Scenarios: Test Not Delivered
+# Scenarios: Test Not Delivered
+# Assume the Test Order is Active
 a = (OLI_data.TestDelivered==0)
 OLI_data.loc[a,'Status'] = 'Active'
+
+# check the cancellation reason, failure code and update test order status accordingly
 
 b = OLI_data.OrderCancellationReason.isnull() & OLI_data.OrderLineItemCancellationReason.isnull()  # Cancellation reason is null
 c = OLI_data.FailureMessage.isnull()                                                                  # Failure code is null
 
-# Scenario: Test not delivered, with cancellation reason only
+# Scenario: Test not delivered, either order or OLI cancellation reason present and failure message is null
 x = a & ~b & c
 OLI_data.loc[x,'Status'] = "Canceled"
 
@@ -467,7 +485,7 @@ y = ~(OLI_data.OrderLineItemCancellationReason.isnull()) & ~(OLI_data.OrderCance
 z = x & y
 OLI_data.loc[z,'Status Notes'] = OLI_data.loc[z, 'OrderLineItemCancellationReason']
 
-# Scenario: Test not delivered, with failure code only
+# Scenario: Test not delivered, failure code present
 x= a & b & ~c
 OLI_data.loc[x,'Status'] = "Failed"
 OLI_data.loc[x,'Status Notes'] = OLI_data.loc[x,'FailureMessage']
@@ -485,7 +503,8 @@ y = ~(OLI_data.OrderLineItemCancellationReason.isnull()) & ~(OLI_data.OrderCance
 z = x & y
 OLI_data.loc[z,'Status Notes'] = OLI_data.loc[z, 'FailureMessage']
 
-# Scenario: Test not delivered because it is in the work
+
+# Scenario: Test not delivered because it is in process
 a = (OLI_data.TestDelivered==0) & (OLI_data.Status =='Active')
 OLI_data.loc[a,'Status'] = OLI_data.loc[a,'CustomerStatus']
 
@@ -493,8 +512,6 @@ x = pd.Series(OLI_data.CustomerStatus.unique())
 a = (OLI_data.TestDelivered==0) & (OLI_data.Status.isin(x[~x.isin(['Closed','Canceled'])]))
 OLI_data.loc[a,'Status Notes'] = OLI_data.loc[a,'DataEntryStatus']
 
-## if delivered with cancel and failure notes, should the cancellation and failure notes show?
-## check the submit
 
 ############################################################ 
 # Create the Claim2Rev report                              # 
@@ -579,9 +596,6 @@ b = Claim2Rev.BillingCaseStatusSummary2.isin(QDX_complete_appeal_status)
 Claim2Rev.loc[a & b, 'appealResult'] = 'Removed'
 Claim2Rev.loc[a & b, 'Removed'] = 1
 
-
-###think through the change status...it is impacting the fully Adjudicated count
-
 # Scenario appeal case is open with the current ticket for the OLI, BillingCaseStatusSummary2 is not 'Appeal'
 c = Claim2Rev.BillingCaseStatusSummary2 == 'Appeals'
 Claim2Rev.loc[a & ~b & ~c, 'BillingCaseStatusSummary2'] = 'Appeals'
@@ -597,6 +611,11 @@ Claim2Rev.loc[a & ~b, 'BillingCaseStatus'] = 'Final Review'
 a = Claim2Rev.appealResult.isnull()
 Claim2Rev.loc[a & c, 'BillingCaseStatusSummary2'] = 'Claim in Process'
 
+
+# Override isFullyAdjudicated for BillingCaseStatusSummary2 is 'Completed', however, isFullyAdjudicated = 0
+a = Claim2Rev.BillingCaseStatusSummary2 == 'Completed'
+b = Claim2Rev.IsFullyAdjudicated == 0
+Claim2Rev.loc[a & b, 'IsFullyAdjudicated'] = 1
 ############################################################################
 # Reading and adding QDX priorAuth case status                             #
 # aka pre claim status                                                     #
@@ -610,8 +629,8 @@ Claim2Rev.loc[a & c, 'BillingCaseStatusSummary2'] = 'Claim in Process'
 
 Claim2Rev= pd.merge(Claim2Rev, priorAuth[['priorAuthCaseNum','priorAuthEnteredDt','priorAuthEnteredTime',
                                           'priorAuthDate',
-                                          'priorAuthResult','priorAuthReqDesc','priorAuthDate','priorAuthNumber',
-                                          'priorAuthResult_Category']]
+                                          'priorAuthResult','priorAuthReqDesc','priorAuthNumber',
+                                          'priorAuthResult_Category', 'PreClaim_Failure']]
                     , how='left', left_on='CurrentQDXCaseNumber', right_on='priorAuthCaseNum')
 
 
@@ -686,9 +705,10 @@ Claim2Rev_output = Claim2Rev[['OrderID', 'OLIID', 'Test',
         'EstimatedNCCNRisk', 'SubmittedNCCNRisk', 'SFDCSubmittedNCCNRisk','FavorablePathologyComparison',
         
         
-        'priorAuthCaseNum','priorAuthEnteredDt','priorAuthEnteredTime', 'priorAuthDate',
-        'priorAuthResult','priorAuthReqDesc','priorAuthDate','priorAuthNumber',
-        'priorAuthResult_Category'       
+        'priorAuthCaseNum','priorAuthEnteredDt','priorAuthEnteredTime',
+        'priorAuthDate',
+        'priorAuthResult','priorAuthReqDesc','priorAuthNumber',
+        'priorAuthResult_Category'
         ]].copy()
         
 #Dataset in excel for Jodi with only Domestic Orders
@@ -736,7 +756,6 @@ Claim2Rev_USD_excel = Claim2Rev[Claim2Rev.BusinessUnit == 'Domestic'][['OrderID'
         'Specialty','NodalStatus','EstimatedNCCNRisk',
 
         'priorAuthCaseNum','priorAuthDate',
-        'priorAuthDate',
         'priorAuthEnteredDt','priorAuthEnteredTime',
         'priorAuthResult', 'priorAuthResult_Category'
         ]]
@@ -745,7 +764,7 @@ Claim2Rev_Research = Claim2Rev[Claim2Rev.BusinessUnit == 'Domestic'][['OrderID',
         'OLIID', 'Test', 'TestDeliveredDate', 'CurrentQDXTicketNumber',
 #        'QDXTickCnt','QDXCaseCnt',
         'BillingCaseStatusSummary2',
-#        'BillingCaseStatusCode', 'BillingCaseStatus',
+        'BillingCaseStatusCode', 'BillingCaseStatus',
         'BilledCurrency', 'ListPrice', 'ContractedPrice', 'Total Outstanding',
         'Total Billed',
 #        'Charge',
@@ -799,14 +818,15 @@ Claim2Rev_Research = Claim2Rev[Claim2Rev.BusinessUnit == 'Domestic'][['OrderID',
         'appealAmtAllow', 'appealAmtClmRec', 'appealAmt', 'appealAmtAplRec',
         'appealRptDt', 'appealSuccess', 'appealCurrency', 'appealResult',
         
-        'Specialty','NodalStatus',
-#        'RiskGroup','ReportingGroup','ClinicalStage',
+        'Specialty','NodalStatus', 'SubmittedERStatus','SubmittedHER2', 'MultiplePrimaries',
+#        'RiskGroup','ReportingGroup'
+        'ClinicalStage',
         'EstimatedNCCNRisk',
 #        'SubmittedNCCNRisk','FavorablePathologyComparison',
-        
+
         'priorAuthCaseNum','priorAuthEnteredDt','priorAuthEnteredTime', 'priorAuthDate',
-        'priorAuthResult','priorAuthReqDesc','priorAuthDate','priorAuthNumber',
-        'priorAuthResult_Category'       
+        'priorAuthResult','priorAuthReqDesc','priorAuthNumber',
+        'priorAuthResult_Category','PreClaim_Failure'   
         ]]
 
 ############################################################
@@ -978,7 +998,7 @@ print ('Claim2Rev_QDX_GHI :: write Claim2Rev report ', len(Claim2Rev), 'rows :: 
 output_file = 'Claim2Rev.txt'
 Claim2Rev_output.to_csv(cfg.output_file_path+output_file, sep='|',index=False)
 
-'''
+
 print ('Claim2Rev_QDX_GHI :: write Claim2Rev USD xlsx report ', len(Claim2Rev), 'rows :: start ::', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 output_file = 'Claim2Rev_USD.xlsx'
 writer = pd.ExcelWriter(cfg.output_file_path+output_file, engine='openpyxl', date_format='yyyy/mm/dd')
@@ -986,13 +1006,13 @@ Claim2Rev_USD_excel.to_excel(writer, sheet_name='Claim2Rev', index = False)
 writer.save()
 writer.close()
 
-print ('Claim2Rev_QDX_GHI :: write Claim2Rev Denial Research xlsx report ', len(Claim2Rev), 'rows :: start ::', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-output_file = 'Claim2Rev_DenialResearch.xlsx'
+print ('Claim2Rev_QDX_GHI :: write Claim2Rev April Research xlsx report ', len(Claim2Rev), 'rows :: start ::', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+output_file = 'Claim2Rev_April_Research.xlsx'
 writer = pd.ExcelWriter(cfg.output_file_path+output_file, engine='openpyxl', date_format='yyyy/mm/dd')
 Claim2Rev_Research.to_excel(writer, sheet_name='Claim2Rev_DenialResearch', index = False)
 writer.save()
 writer.close()
-'''
+
 
 '''
 output_file = 'PreClaim_Status_SalesOps.xlsx'
@@ -1002,7 +1022,7 @@ writer.save()
 writer.close()
 '''
 
-'''
+
 print ('Claim2Rev_QDX_GHI :: write IBC Appeals xlsx report ', len(Claim2Rev), 'rows :: start ::', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
 output_file = 'IBC_Appeals_Detail.xlsx'
@@ -1018,19 +1038,23 @@ writer = pd.ExcelWriter(cfg.output_file_path+output_file, engine='openpyxl', dat
 Prostate_Appeals_Detail.to_excel(writer, index = False)
 writer.save()
 writer.close()
-'''
+
 ###############################################
 #    Writing a Data refresh log into Excel    #
 ###############################################
 
 Dashboard_Dataset = [['Front-End Charts', 'Claim2Rev', 'Managed Care Analytics']
                     ,['Payor Summary', 'Claim2Rev','Managed Care Analytics']
+                    ,['Adjustment-Detail','OLI_TXN_Detail','Managed Care Analytics']
+                    ,['IBC-QBR1','Claim2Rev','Managed Care Analytics']
+                    ,['IBC-QBR2','Claim2Rev','Managed Care Analytics']
                     ,['Appeals-Summary','Claim2Rev','Managed Care Analytics']
                     ,['Appeals - Details', 'Claim2Rev','Managed Care Analytics']
                     ,['IBC Appeals Detail','Claim2Rev','Managed Care Analytics']
                     ,['Prostate Appeals Detail', 'Claim2Rev','Managed Care Analytics']
-                    ,['Adjustment-Detail','OLI_TXN_Detail','Managed Care Analytics']
-                    ,['All','Claim2Rev','Executive Appeal']
+                    ,['All','Claim2Rev','Managed Care Appeal Reports']
+                    ,['Payor Test Criteria Summary','Long PTC','Managed Care PTC-PTV Report']
+                    ,['Payor Test Validation Summary','Long PTV','Managed Care PTC-PTV Report']
                     ]
 
 data_refresh = pd.DataFrame(data=Dashboard_Dataset, columns=['Dashboard','Dataset','Tableau File'])
@@ -1041,6 +1065,19 @@ writer = pd.ExcelWriter(cfg.output_file_path+output_file)
 data_refresh.to_excel(writer, index=False)
 writer.save()
 writer.close()
+
+a = Claim2Rev_output.Tier1PayorID.isin(['CR085599','CR085614'])
+b = Claim2Rev_output.Test.isin(['IBC','Prostate'])
+Sankey_POC1 = Claim2Rev[a & b]
+Sankey_POC1['VizSide'] = 'A'
+
+Sankey_POC2 = Claim2Rev[a & b]
+Sankey_POC2['VizSide'] = 'B'
+
+Sankey_POC = pd.concat([Sankey_POC1, Sankey_POC2])
+output_file = 'Sankey_POC.txt'
+Sankey_POC.to_csv(cfg.output_file_path+output_file, sep='|',index=False)
+
 
 print ('Hurray !!! Done Done Done',datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
