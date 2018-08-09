@@ -294,12 +294,12 @@ def stdPayment(usage, folder, refresh=0):
         output_data = output[((output.PymntCategoryType == 'CA') & \
                                 (output.OLIDOS >= "2016-01-01") & (output['OLIDOS'] < "2016-04-01"))]
         
-    elif usage == 'Allowable_analysis':
-        select_columns = pymnt_note[(pymnt_note['Allowable_analysis'] == 1)]['Synonyms']
-        output = output[(output_data['PymntCategoryType'] == 'CR') & ~(output_data['OLIID'].isnull()) &\
-                               (output['OLIDOS'] >= "2016-01-01") & (output['OLIDOS'] < "2016-04-01")]\
+    elif usage == 'UnitPrice_analysis':
+        select_columns = pymnt_note[(pymnt_note['UnitPrice_analysis'] == 1)]['Synonyms']
+        '''output = output[(output['PymntCategoryType'] == 'CR') & ~(output['OLIID'].isnull()) &\
+                               (output['OLIDOS'] >= "2017-01-01") & (output['OLIDOS'] < "2017-04-01")]\
                                [select_columns].copy()
-                               
+        '''                       
     elif usage == 'Claim2Rev':
         select_columns = pymnt_note[(pymnt_note['Claim2Rev']==1)]['Synonyms']
      
