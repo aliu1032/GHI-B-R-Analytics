@@ -1,16 +1,12 @@
 '''
 @author: aliu
-
-
 Generate the Claim2Rev report.
 Purpose of the report is to track for Test Delivered OLI, the billed amount, payment, adjustment, current outstanding and the revenue recognized for the OLI.
-Using the QDX data for Payment and Adjustment due to the issues with GHI data listed in Constraints
-
+Using the QDX data for Payment and Adjustment, Current Ticket and Current Case.
 Data sources: 
 Revenue: GHI Revenue data: calculate the sum revenue per OLI
 Order Line Detail: Get Test Delivered Date, HCP information from OrderLineDetail
 Bills & Receipt: Get per OLI Claim and Payment summary using QDX stdClaim and stdPayment file
-
 Modified Total Charges and Payment:
 One OLI .. One:Many Tickets
 Thus to calculate the OLI charges need to take off the charges error
@@ -20,26 +16,22 @@ Constraints:
 1. NS has missing transaction from stdClaim + stdPayment file (see OLI_Payment_Revenue; NS_QDX Compare)
    Thus getting the bills and receipt data from stgBills, stgPayment, stgAdjust do not match QDX numbers
    And QDX file have the CIE and Refund code. (stdAdjustment has the GHI adjustment code too)
-
 2. fctOrderLineDetail only has the current ticket charge, payment, adjustment and balance
-
 3. fctRevenue has revenue for OLI + Ticket, there are revenue recognized on the non-current ticket
    therefore, need to group by OLI on the fctRevenue to get the total revenue recognized, and cannot only take the 'current ticket'
-
 4. NetSuite export monthly data to EDW. If there are multiple adjustments for an OLI happened in the same month, NS sum the monthly number and assign 
    it with the adjustment code of the last TXN line.
+5. IT provides access to Stage StagingDB which is a few days older than the Quadax data feed.
+   Thus use Quadax data for Claim, Payment, Adjustment, Ticket and Case for a more update data.
+   For OLI data, use EDWDB in StagingDB.
    
 Oct 18: 
 Switch Revenue data source from StagingDB.Analytics.mvwRevenue to EDWDB.dbo.fctRevenue to get the IsRevenueReconciliationAdjustment flag
 Exclude the IsRevenueReconciliationAdjustment from Claim2Rev analysis
-
 Nov 27: adding appeal case, history & result to OLI
-
 Dec 15: taking Billing Case status from QDX file, because the StagingDB is a few days older, make it harder to reconcile with the appeal status 
 to determine the billing case status
-
 Jan 22: update the calculation reconciliation logic
-
 Jan 22 :: Workaround BI does not always have the right current ticket number;
           Derive the current ticket from stdClaim. This table has all the tickets issued by Quadax. Group rows by caseAccession ,
           the current ticket number is the one with the latest TXNDate
@@ -188,14 +180,11 @@ temp_QDX_numbers = temp_QDX_numbers[ ~(temp_QDX_numbers.caseAccession.isnull()) 
 #(temp_QDX_numbers.caseEntryYrMth >= '2016-01-01') &
 temp_QDX_numbers = pd.merge(temp_QDX_numbers, Current_case, how='left', left_on='caseAccession', right_on='OLIID')
 temp_QDX_numbers = pd.merge(temp_QDX_numbers, Current_ticket, how='left', left_on='caseAccession', right_on='OLIID')
-
-
 a = temp_QDX_numbers[~temp_QDX_numbers.CurrentQDXTicketNumber.isnull()]
 b = (a.caseCaseNum == a.CurrentQDXCaseNum) & (a.caseTicketNum != a.CurrentQDXTicketNumber)
 c = a[b]['caseAccession']
 d = temp_QDX_numbers[temp_QDX_numbers.caseAccession.isin(c)][['caseAccession','caseCaseNum','caseTicketNum','CurrentQDXCaseNum','CurrentQDXTicketNumber'
                                                               , 'caseEntryYrMth','BillingCaseStatusSummary1','BillingCaseStatusSummary2','BillingCaseStatus']].sort_values(by='caseAccession')
-
 output_file = 'Case_ticket_mismatch.xlsx'
 writer = pd.ExcelWriter(output_file_path+output_file, engine='openpyxl', date_format='yyyy/mm/dd')
 d.to_excel(writer, sheet_name='Case_ticket_mismatch', index = False)
@@ -315,16 +304,12 @@ Claim_pymnt.loc[a, 'TXNAmount'] = Claim_pymnt.loc[a, 'TXNAmount'] * -1
 
 aggregations = {
     'TXNAmount' : 'sum',
-#    'stdPymntAllowedAmt': 'sum',
-#    'stdPymntDeductibleAmt': 'sum',
-#    'stdPymntCoinsAmt':'sum'
     }
 
 ''' Calculate the Payor Amount '''
-Summarized_PADC = Claim_pymnt[(Claim_pymnt.TXNType=='RI')].groupby(['OLIID']).agg(aggregations)
-Summarized_PADC.columns = columns = ['_'.join(col).strip() for col in Summarized_PADC.columns.values] # flatten the multilevel column name
-Summarized_PADC.columns = ['PayorPaid']
-#Summarized_PADC.columns = [['PayorPaid','AllowedAmt','DeductibleAmt','CoinsAmt']]
+Summarized_PayorPaid = Claim_pymnt[(Claim_pymnt.TXNType=='RI')].groupby(['OLIID']).agg(aggregations)
+Summarized_PayorPaid.columns = columns = ['_'.join(col).strip() for col in Summarized_PayorPaid.columns.values] # flatten the multilevel column name
+Summarized_PayorPaid.columns = ['PayorPaid']
 
 ''' Calculate the Patient Paid Amount '''  
 Summarized_PtPaid = Claim_pymnt[(Claim_pymnt.TXNType=='RP')].groupby(['OLIID']).agg({'TXNAmount' :'sum'})
@@ -358,8 +343,6 @@ for a in temp.groups.keys():
                             & (Claim_pymnt.QDXAdjustmentCode.isin(temp_codes)))].groupby(['OLIID']).agg({'TXNAmount' :'sum'})
     temp_sum.columns = [a]
     Adjust_Category = pd.concat([Adjust_Category,temp_sum], axis=1, sort=False)  
-    ##added sort=False
-
 
 ##also lay out the summarized amount of CategoryDesc
 category = 'Category'
@@ -378,7 +361,7 @@ for a in temp.groups.keys():
 '''
 print ('Claim2Rev_QDX_GHI :: Update bill amount and payment amount by removing the charge error and refund')
 
-QDX_OLI_Receipt = pd.concat([Summarized_Claim, Summarized_PADC, Summarized_PtPaid, Summarized_Adjust, Adjust_Category, GHIAdjust_Category], axis=1, sort=False)
+QDX_OLI_Receipt = pd.concat([Summarized_Claim, Summarized_PayorPaid, Summarized_PtPaid, Summarized_Adjust, Adjust_Category, GHIAdjust_Category], axis=1, sort=False)
 QDX_OLI_Receipt = QDX_OLI_Receipt.fillna(0.0)
 
 # Calculate the OLI Test Charge and Payment received
@@ -411,7 +394,7 @@ OLI_data.loc[a,'ListPrice'] = temp.loc[a,'Std_ListPrice']
 #  is insufficient to tell if an order is closed because delivered, canceled or failed   #
 ##########################################################################################
 # keep the Original_OLI_TestDelivered, 
-# if there is current Ticket Number, correct the TestDelivered = 0 to 1 and IsClaim = 0 to 1
+# if there is current Ticket Number, correct the TestDelivered = 0 to 1
 OLI_data['Original_OLI_TestDelivered'] = OLI_data['TestDelivered']
 a = (OLI_data.TestDelivered == 0) & ~(OLI_data.CurrentQDXTicketNumber.isnull())
 OLI_data.loc[a,'TestDelivered'] = 1
@@ -430,7 +413,6 @@ where OrderLineItemID in ('OL000940965', 'OL001007665')
 summary = OLI_data.pivot_table(index = ['BillingCaseStatusSummary2'], columns = 'Override_TestDelivered', values='OLIID', aggfunc='count', margins=True)
 summary = OLI_data.pivot_table(index = 'Override_TestDelivered', values='OLIID', aggfunc='count', margins=True)
 summary = OLI_data.pivot_table(index = ['BillingCaseStatusSummary2'], columns = 'IsClaim', values='OLIID', aggfunc='count', margins=True)
-
 summary = OLI_data.pivot_table(index = ['BillingCaseStatusSummary2'], values='IsFullyAdjudicated', aggfunc='sum', margins=True)
 summary = OLI_data.pivot_table(index = ['BillingCaseStatusSummary2'], columns = 'IsFullyAdjudicated', values='OLIID', aggfunc='count', margins=True)
 '''
@@ -559,7 +541,6 @@ temp_check = Claim2Rev[['OLIID','Test','CurrentQDXTicketNumber','appealCaseNum',
                         'Tier1Payor', 'Tier2Payor', 'Tier4Payor']]
 a = temp_check[~(temp_check.CurrentQDXTicketNumber.isnull()) & ~(temp_check.appealCaseNum.isnull()) & (temp_check.appealCaseNum != temp_check.CurrentQDXCaseNumber)]
 b = Claim_case[Claim_case.caseAccession.isin(a.OLIID)].sort_values(by='caseAccession')
-
 output_file = 'Appeal_Current_Case_ticket_mismatch.xlsx'
 writer = pd.ExcelWriter(output_file_path+output_file, engine='openpyxl', date_format='yyyy/mm/dd')
 b.to_excel(writer, index = False)
@@ -616,6 +597,16 @@ Claim2Rev.loc[a & c, 'BillingCaseStatusSummary2'] = 'Claim in Process'
 a = Claim2Rev.BillingCaseStatusSummary2 == 'Completed'
 b = Claim2Rev.IsFullyAdjudicated == 0
 Claim2Rev.loc[a & b, 'IsFullyAdjudicated'] = 1
+
+#IsContracted
+a = Claim2Rev.ContractedPrice.isna()
+Claim2Rev['IsContract'] = 1
+Claim2Rev.loc[a,'IsContract'] = 0
+
+#IsAccrual
+a = Claim2Rev.RevenueStatus == 'Accrual'
+Claim2Rev['IsAccrual'] = 0
+Claim2Rev.loc[a,'IsAccrual'] = 1
 ############################################################################
 # Reading and adding QDX priorAuth case status                             #
 # aka pre claim status                                                     #
@@ -633,6 +624,25 @@ Claim2Rev= pd.merge(Claim2Rev, priorAuth[['priorAuthCaseNum','priorAuthEnteredDt
                                           'priorAuthResult_Category', 'PreClaim_Failure']]
                     , how='left', left_on='CurrentQDXCaseNumber', right_on='priorAuthCaseNum')
 
+
+############################################################################
+# Source the OLI allowable amount from Quadax                              #
+# Payor provides the allowable amount with the EOB                         #
+# A Claimed OLI has 1 or multiple Tickets                                  # 
+# A Ticket has 1 or multiple EOB                                           #
+# The allowable amount of an OLI is the max. allowable amount of           #
+# all the EOB issued with payment to the OLI                               #
+############################################################################
+
+allowable_amt = Claim_pymnt[(Claim_pymnt.TXNType=='RI') & (Claim_pymnt.TXNAmount > 0)][['TicketNumber','OLIID','Test','OLIDOS',
+                                                                                #'PrimaryInsPlan_GHICode','TicketInsPlan_GHICode','PymntInsPlan_GHICode',
+                                                                                 'TXNLineNumber','TXNType','TXNCurrency','TXNAmount',
+                                                                                 'stdPymntAllowedAmt','stdPymntDeductibleAmt','stdPymntCoinsAmt']]
+
+OLI_allowable = allowable_amt.groupby(['OLIID']).agg({'stdPymntAllowedAmt':'max'})
+OLI_allowable.columns = ['AllowedAmt']
+
+Claim2Rev = pd.merge(Claim2Rev, OLI_allowable, on = 'OLIID')
 
 ############################################################################
 #      Ad hoc fixes to Claim2Rev Data                                      #
@@ -661,6 +671,8 @@ Claim2Rev_output = Claim2Rev[['OrderID', 'OLIID', 'Test',
         'Total Adjustment'
         ] + list(Adj_code.groupby('TXN Subcategory').groups.keys()) + [
  
+        'AllowedAmt',
+        
         'Revenue', 'AccrualRevenue', 'CashRevenue',
         'USDRevenue', 'USDAccrualRevenue', 'USDCashRevenue', 
         
@@ -670,7 +682,9 @@ Claim2Rev_output = Claim2Rev[['OrderID', 'OLIID', 'Test',
         'QDXInsPlanCode', 'LineOfBenefit', 'QDXInsFC', 'FinancialCategory',
             
         'Reportable', 'IsCharge',
-        'RevenueStatus',  'TestDelivered', 'IsClaim', 'IsFullyAdjudicated', 'NSInCriteria',
+        'TestDelivered', 'IsClaim', 'IsFullyAdjudicated',
+        'IsContract', 'IsAccrual',
+        'RevenueStatus', 'NSInCriteria',
         
         'Status', 'FailureMessage',#'Status Notes',
 
@@ -711,7 +725,7 @@ Claim2Rev_output = Claim2Rev[['OrderID', 'OLIID', 'Test',
         'priorAuthResult_Category'
         ]].copy()
         
-#Dataset in excel for Jodi with only Domestic Orders
+#Export a dataset in excel for Jodi, includes Domestic Orders
 Claim2Rev_USD_excel = Claim2Rev[Claim2Rev.BusinessUnit == 'Domestic'][['OrderID',
         'OLIID', 'Test','OrderStartDate', 'TestDeliveredDate', 'CurrentQDXTicketNumber',
         'BillingCaseStatusSummary2', 'BillingCaseStatusCode', 'BillingCaseStatus',
@@ -726,7 +740,8 @@ Claim2Rev_USD_excel = Claim2Rev[Claim2Rev.BusinessUnit == 'Domestic'][['OrderID'
         'Revenue Impact Adjustment', 'Insurance Adjustment',
         'GHI Adjustment', 'All other Adjustment',
 
-#        'Currency',
+        'AllowedAmt',
+        
         'Revenue', 'AccrualRevenue', 'CashRevenue',
         'USDRevenue', 'USDAccrualRevenue', 'USDCashRevenue', 
         
@@ -779,6 +794,8 @@ Claim2Rev_Research = Claim2Rev[Claim2Rev.BusinessUnit == 'Domestic'][['OrderID',
           + list(Adj_code.groupby('Category').groups.keys())
           +                     
         [
+            
+        'AllowedAmt',
 #        'Recon_Adjustment','Sum_AdjBreakout',
         
 #        'Currency', 
@@ -830,7 +847,8 @@ Claim2Rev_Research = Claim2Rev[Claim2Rev.BusinessUnit == 'Domestic'][['OrderID',
         ]]
 
 ############################################################
-#     Create a Transpose of the Bill, Adjustment, Revenue  #
+#   Create a Transpose of the Bill, Adjustment, Revenue    #
+#   This is used for the Adjustment detail view            #
 ############################################################
 print ('Claim2Rev_QDX_GHI :: Create a transpose of the Claim2Rev data')
 #'OLIDOS','ClaimPeriodDate',
@@ -932,17 +950,10 @@ for i in Payor_view.Set.unique() :
     TXN_Detail.loc[TXN_Detail.Tier2PayorID.isin(list(code)),i] = '1'   
 
 #########################################
-#   Special Data set for users          #
+# Extract Data set for end users        #
 #########################################
 
-#PreClaim Status for Ron's
-Cond = (Claim2Rev.BusinessUnit == 'Domestic') & \
-        (Claim2Rev.TestDeliveredDate >= '2017-01-01') & \
-        ((Claim2Rev.Test == 'IBC') | (Claim2Rev.Test == 'Prostate'))
-       
-PreClaim_Status_SalesOps = Claim2Rev[Cond][['OrderID','OLIID', 'Test','priorAuthResult']]
-
-#IBC Appeals Detail 
+#Extract data set of IBC Appeals Detail 
 Cond = (Claim2Rev.BusinessUnit == 'Domestic') & \
        (Claim2Rev.Test == 'IBC') & (~Claim2Rev.appealResult.isnull())
        
@@ -962,7 +973,7 @@ IBC_Appeals_Detail.columns =  [['Tier1PayorID','Tier1PayorName','Tier2PayorID', 
                                 'A1', 'A2', 'A3', 'A4', 'A5', 'ER', 'L1', 'L2', 'L3',
                                 'Appeal Amt','Appeal Amt Apl Rec']]      
 
-#Prostate Appeals Detail       
+#Extract a data set of Prostate Appeals Detail       
 Cond = (Claim2Rev.BusinessUnit == 'Domestic') & \
        (Claim2Rev.Test == 'Prostate') & (~Claim2Rev.appealResult.isnull())
        
@@ -1015,6 +1026,13 @@ writer.close()
 
 
 '''
+#PreClaim Status for Ron's
+Cond = (Claim2Rev.BusinessUnit == 'Domestic') & \
+        (Claim2Rev.TestDeliveredDate >= '2017-01-01') & \
+        ((Claim2Rev.Test == 'IBC') | (Claim2Rev.Test == 'Prostate'))
+       
+PreClaim_Status_SalesOps = Claim2Rev[Cond][['OrderID','OLIID', 'Test','priorAuthResult']]
+
 output_file = 'PreClaim_Status_SalesOps.xlsx'
 writer = pd.ExcelWriter(output_file_path+output_file, engine='openpyxl', date_format='yyyy/mm/dd')
 PreClaim_Status_SalesOps.to_excel(writer, index = False)
@@ -1048,10 +1066,10 @@ Dashboard_Dataset = [['Front-End Charts', 'Claim2Rev', 'Managed Care Analytics']
                     ,['Adjustment-Detail','OLI_TXN_Detail','Managed Care Analytics']
                     ,['IBC-QBR1','Claim2Rev','Managed Care Analytics']
                     ,['IBC-QBR2','Claim2Rev','Managed Care Analytics']
-                    ,['Appeals-Summary','Claim2Rev','Managed Care Analytics']
-                    ,['Appeals - Details', 'Claim2Rev','Managed Care Analytics']
-                    ,['IBC Appeals Detail','Claim2Rev','Managed Care Analytics']
-                    ,['Prostate Appeals Detail', 'Claim2Rev','Managed Care Analytics']
+#                    ,['Appeals-Summary','Claim2Rev','Managed Care Analytics']
+#                    ,['Appeals - Details', 'Claim2Rev','Managed Care Analytics']
+#                    ,['IBC Appeals Detail','Claim2Rev','Managed Care Analytics']
+#                    ,['Prostate Appeals Detail', 'Claim2Rev','Managed Care Analytics']
                     ,['All','Claim2Rev','Managed Care Appeal Reports']
                     ,['Payor Test Criteria Summary','Long PTC','Managed Care PTC-PTV Report']
                     ,['Payor Test Validation Summary','Long PTV','Managed Care PTC-PTV Report']
@@ -1091,4 +1109,3 @@ client = Client(oauth)
 me = client.user(user_id='me').get()
 print ('user_login: ' + me['login'])
 '''
-
