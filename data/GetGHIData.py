@@ -24,7 +24,7 @@ server = cfg.GHI_DB_Server
 #################################################
 #   Order Line Detail for appeal analysis       #
 #################################################
-def OLI_detail(usage, folder, refresh=1 ):
+def OLI_detail(usage, folder, refresh=1, PayorHierarchy = 'At_OrderCapture'):
     # usage = ['appeal', 'revenue_receipt', 'utilization']
     # refresh = [1: refresh data from database and save to the given folder,
     #            0: get the data from the given folder
@@ -36,16 +36,26 @@ def OLI_detail(usage, folder, refresh=1 ):
     #server = 'EDWStage'
     #database = 'StagingDB'
     database = 'EDWDB'
-    target = server + '_' + database + '_' + 'OrderLineDetail.txt'
-
+    
+    if PayorHierarchy == 'At_OrderCapture':
+        target = server + '_' + database + '_' + 'OrderLineDetail.txt'
+    else:
+        target = server + '_' + database + '_' + 'OrderLineDetail_CurrentPayorHierarchy.txt'
+        
     if refresh:    
         cnxn = pyodbc.connect('Trusted_Connection=yes',DRIVER='{ODBC Driver 13 for SQL Server}', SERVER=server, DATABASE=database)
        
         #f = open(sql_folder + 'StagingDB_Analytics_OrderDetail.sql')
-        f = open(cfg.sql_folder + 'EDWDB_fctOrderLineItem.sql')
-        tsql = f.read()
-        f.close()
         
+        if PayorHierarchy == 'At_OrderCapture':
+            f = open(cfg.sql_folder + 'EDWDB_fctOrderLineItem.sql')
+            tsql = f.read()
+            f.close()
+        else:
+            f = open(cfg.sql_folder + 'EDWDB_fctOrderLineItem_CurrentPayorHierarchy.sql')
+            tsql = f.read()
+            f.close()
+            
         output = pd.read_sql(tsql, cnxn)
         output.to_csv(folder + target, sep='|', index=False)
 

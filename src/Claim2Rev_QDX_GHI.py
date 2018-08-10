@@ -642,7 +642,7 @@ allowable_amt = Claim_pymnt[(Claim_pymnt.TXNType=='RI') & (Claim_pymnt.TXNAmount
 OLI_allowable = allowable_amt.groupby(['OLIID']).agg({'stdPymntAllowedAmt':'max'})
 OLI_allowable.columns = ['AllowedAmt']
 
-Claim2Rev = pd.merge(Claim2Rev, OLI_allowable, on = 'OLIID')
+Claim2Rev = pd.merge(Claim2Rev, OLI_allowable, how='left', on = 'OLIID')
 
 ############################################################################
 #      Ad hoc fixes to Claim2Rev Data                                      #
@@ -999,31 +999,43 @@ Prostate_Appeals_Detail.columns = [['Tier1PayorID','Tier1PayorName','Tier2PayorI
 ###############################################
 
 print ('Claim2Rev_QDX_GHI :: write OLITXT_Detail', len(TXN_Detail), 'rows :: start ::', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-
 output_file = 'OLI_TXN_Detail.txt'
 TXN_Detail.to_csv(cfg.output_file_path+output_file, sep='|',index=False)
 
 
-print ('Claim2Rev_QDX_GHI :: write Claim2Rev report ', len(Claim2Rev), 'rows :: start ::', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-
+print ('Claim2Rev_QDX_GHI :: write Claim2Rev report ', len(Claim2Rev_output), 'rows :: start ::', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 output_file = 'Claim2Rev.txt'
 Claim2Rev_output.to_csv(cfg.output_file_path+output_file, sep='|',index=False)
 
 
-print ('Claim2Rev_QDX_GHI :: write Claim2Rev USD xlsx report ', len(Claim2Rev), 'rows :: start ::', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+print ('Claim2Rev_QDX_GHI :: write Claim2Rev USD xlsx report ', len(Claim2Rev_USD_excel), 'rows :: start ::', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 output_file = 'Claim2Rev_USD.xlsx'
 writer = pd.ExcelWriter(cfg.output_file_path+output_file, engine='openpyxl', date_format='yyyy/mm/dd')
 Claim2Rev_USD_excel.to_excel(writer, sheet_name='Claim2Rev', index = False)
 writer.save()
 writer.close()
 
-print ('Claim2Rev_QDX_GHI :: write Claim2Rev April Research xlsx report ', len(Claim2Rev), 'rows :: start ::', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+
+print ('Claim2Rev_QDX_GHI :: write IBC Appeals xlsx report ', len(IBC_Appeals_Detail), 'rows :: start ::', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+output_file = 'IBC_Appeals_Detail.xlsx'
+writer = pd.ExcelWriter(cfg.output_file_path+output_file, engine='openpyxl', date_format='yyyy/mm/dd')
+IBC_Appeals_Detail.to_excel(writer, index = False)
+writer.save()
+writer.close()
+
+print ('Claim2Rev_QDX_GHI :: write Prostate Appeals xlsx report ', len(Prostate_Appeals_Detail), 'rows :: start ::', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+output_file = 'Prostate_Appeals_Detail.xlsx'
+writer = pd.ExcelWriter(cfg.output_file_path+output_file, engine='openpyxl', date_format='yyyy/mm/dd')
+Prostate_Appeals_Detail.to_excel(writer, index = False)
+writer.save()
+writer.close()
+
+print ('Claim2Rev_QDX_GHI :: write Claim2Rev April Research xlsx report ', len(Claim2Rev_Research), 'rows :: start ::', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 output_file = 'Claim2Rev_April_Research.xlsx'
 writer = pd.ExcelWriter(cfg.output_file_path+output_file, engine='openpyxl', date_format='yyyy/mm/dd')
 Claim2Rev_Research.to_excel(writer, sheet_name='Claim2Rev_DenialResearch', index = False)
 writer.save()
 writer.close()
-
 
 '''
 #PreClaim Status for Ron's
@@ -1039,24 +1051,6 @@ PreClaim_Status_SalesOps.to_excel(writer, index = False)
 writer.save()
 writer.close()
 '''
-
-
-print ('Claim2Rev_QDX_GHI :: write IBC Appeals xlsx report ', len(Claim2Rev), 'rows :: start ::', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-
-output_file = 'IBC_Appeals_Detail.xlsx'
-writer = pd.ExcelWriter(cfg.output_file_path+output_file, engine='openpyxl', date_format='yyyy/mm/dd')
-IBC_Appeals_Detail.to_excel(writer, index = False)
-writer.save()
-writer.close()
-
-print ('Claim2Rev_QDX_GHI :: write Prostate Appeals xlsx report ', len(Claim2Rev), 'rows :: start ::', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-
-output_file = 'Prostate_Appeals_Detail.xlsx'
-writer = pd.ExcelWriter(cfg.output_file_path+output_file, engine='openpyxl', date_format='yyyy/mm/dd')
-Prostate_Appeals_Detail.to_excel(writer, index = False)
-writer.save()
-writer.close()
-
 ###############################################
 #    Writing a Data refresh log into Excel    #
 ###############################################
