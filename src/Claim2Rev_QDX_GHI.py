@@ -62,12 +62,14 @@ Claim_case = QData.claim_case_status('QDXClaim_CaseStatus', cfg.input_file_path,
 priorAuth = QData.priorAuth('Claim2Rev', cfg.input_file_path, refresh)
 
 ###############################################################
-#   Read GHI Revenue Data and OrderLineDetail and Appeal Data #
+#   Read GHI Revenue Data and OrderLineDetail                 #
+#   also get the current SFDC Payor Hierarchy                 #
 ###############################################################
 
 from data import GetGHIData as GData
 Revenue_data = GData.revenue_data('Claim2Rev', cfg.input_file_path, refresh)
 OLI_data = GData.OLI_detail('Claim2Rev', cfg.input_file_path, refresh)
+SFDC_Payors = GData.getPayors('Claim2Rev', cfg.input_file_path, refresh)
 
 ###############################################################
 #   Read QDX Appeal Data                                      #
@@ -117,9 +119,9 @@ OLI_data.rename(columns = {'CurrentTicketNumber':'BI_CurrentTicketNumber'}, inpl
 #Claim_bill.loc[temp.groups['OL000605423','627308']]
 
 temp3 = Claim_bill.groupby(['OLIID','TicketNumber'])['CaseNumber']  # this return a SeriesGroupBy with CaseNumber
+d = temp3.apply(lambda x : x.keys()[x.values.argmax()]) # iterate each group, return the index of the max value of the series, this is the db index number
 #b = temp3.apply(lambda x : x.values.argmax()) #iterate each group, return the index of the max value of the series
 #c = temp3.apply(lambda x : x.values[x.values.argmax()]) # iterate each group, return the values of the max value of the series, this is the case number
-d = temp3.apply(lambda x : x.keys()[x.values.argmax()]) # iterate each group, return the index of the max value of the series, this is the db index number
 
 
 temp1 = Claim_bill.loc[d][['OLIID','TicketNumber','CaseNumber','TXNDate']]
@@ -127,7 +129,8 @@ temp2 = temp1.groupby(['OLIID']).agg({'TXNDate':'idxmax'}).TXNDate
 
 Current_ticket = Claim_bill.loc[temp2][['OLIID','TicketNumber', 'CaseNumber',
                                         'BillingCaseStatusSummary1', 'BillingCaseStatusSummary2',
-                                        'BillingCaseStatusCode', 'BillingCaseStatus']]
+                                        'BillingCaseStatusCode', 'BillingCaseStatus',
+                                        'TicketInsPlan_QDXCode','TicketInsPlan_GHICode']]
 
 Current_ticket.rename(columns = {'TicketNumber': 'CurrentQDXTicketNumber'}, inplace=True)
 TickCnt = (pd.pivot_table(Claim_bill, index=['OLIID'], values = 'TicketNumber',\
@@ -149,27 +152,41 @@ a = Current_reference.CurrentQDXCaseNumber.isnull()
 Current_reference.loc[a,'CurrentQDXCaseNumber'] = Current_reference.loc[a,'maxCaseNum']
 Current_reference = Current_reference[['OLIID','CurrentQDXTicketNumber','QDXTickCnt','CurrentQDXCaseNumber','QDXCaseCnt',
                                        'BillingCaseStatusSummary1', 'BillingCaseStatusSummary2',
-                                       'BillingCaseStatusCode', 'BillingCaseStatus']]
+                                       'BillingCaseStatusCode', 'BillingCaseStatus',
+                                       'TicketInsPlan_QDXCode','TicketInsPlan_GHICode']]
 
 OLI_data = pd.merge(OLI_data, Current_reference, how='left', on='OLIID')
 
 ## IsClaim is whether a TicketNumber is present
-## run through one more time as this script updated the current ticket number
-#a = (OLI_data.IsClaim == 0) & ~(OLI_data.CurrentQDXTicketNumber.isnull())
 OLI_data['IsClaim'] = 1
 
 a = (OLI_data.CurrentQDXTicketNumber.isnull())
 OLI_data.loc[a,'IsClaim'] = 0
 
-'''
-# then void 'IsClaim' if the CLaim is 'completed with CIE' -------
-# On Jul23: keep the CIE, change the pie chart to only show %
-a = (OLI_data.IsClaim==1) & (OLI_data.BillingCaseStatusSummary2 == 'Completed') & (OLI_data.BillingCaseStatus=='Charged In Error')
-OLI_data.loc[a,'IsClaim'] = 0
-'''
+## IsFullyAdjudicated is 1 for BillingCaseStatusSymmary2 = 'Completed'
+## EDW source the flag from NetSuite, don't know where is the bug. QDX billing case status and EDW billing case status inconsistent.
+## According to QDX, OLI has an outstanding amount and there claim is being appealed, EDW has completed status and IsFullyAdjudicated = 1 on these opened claims.
+## Update the IsFullyAdjuducated flag according to the Current Ticket/Case BillingCaseStatusSummary2
+OLI_data.loc[OLI_data.BillingCaseStatusSummary2 == 'Completed', 'IsFullyAdjudicated'] = 1
+OLI_data.loc[(OLI_data.BillingCaseStatusSummary2 != 'Completed') & (~OLI_data.BillingCaseStatusSummary2.isna()), 'IsFullyAdjudicated'] = 0
+OLI_data.loc[OLI_data.BillingCaseStatusSummary2.isna(), 'IsFullyAdjudicated'] = ''
 
 # change 'In' to 'in', make the data value consistent
 OLI_data.loc[OLI_data.BillingCaseStatusSummary2 == 'Claim In Process','BillingCaseStatusSummary2'] = 'Claim in Process'
+
+## if Tier4PayorID is null, patch it with the Ticket payor Id from Quadax
+a = (OLI_data.IsClaim==1) & (OLI_data.Tier4PayorID.isnull())
+OLI_data.loc[a,'Tier4PayorID'] = OLI_data.loc[a,'TicketInsPlan_GHICode']
+
+## Managed Care needs the current Payor Hierarchy instead of the Payor Hierarchy as when a claim is processed.
+## Join on the Tier4PayorID
+OLI_data.rename(columns = {'Tier1Payor':'BI_Tier1Payor', 'Tier1PayorID':'BI_Tier1PayorID', 'Tier1PayorName': 'BI_Tier1Payor_Name',
+                           'Tier2Payor':'BI_Tier2Payor', 'Tier2PayorID':'BI_Tier2PayorID', 'Tier2PayorName': 'BI_Tier2Payor_Name',
+#                           'Tier4Payor':'BI_Tier1Payor', 'Tier4PayorID':'BI_Tier4PayorID', 'Tier1PayorName': 'BI_Tier4Payor_Name'
+                           }, 
+                inplace=True)
+
+OLI_data = pd.merge(OLI_data, SFDC_Payors, how='left', on='Tier4PayorID')
 
 
 '''
@@ -188,6 +205,17 @@ d = temp_QDX_numbers[temp_QDX_numbers.caseAccession.isin(c)][['caseAccession','c
 output_file = 'Case_ticket_mismatch.xlsx'
 writer = pd.ExcelWriter(output_file_path+output_file, engine='openpyxl', date_format='yyyy/mm/dd')
 d.to_excel(writer, sheet_name='Case_ticket_mismatch', index = False)
+writer.save()
+writer.close()
+
+a = (OLI_data.IsClaim==1) & (OLI_data.BusinessUnit=='Domestic') & (OLI_data.OrderStartDate >= '09-01-2017') & (OLI_data.OrderStartDate < '04-01-2018')
+# & (OLI_data.Tier2Payor.isnull())
+temp = OLI_data[a][['OLIID','OrderStartDate','TestDeliveredDate','IsClaim','TestDelivered','Tier1Payor','Tier2Payor','Tier4Payor','Tier4PayorID','QDXInsPlanCode',
+                     'BI_CurrentTicketNumber','CurrentQDXTicketNumber','CurrentQDXCaseNumber','BillingCaseStatusSummary1','BillingCaseStatusSummary2',
+                     'BillingCaseStatusCode','BillingCaseStatus','TicketInsPlan_QDXCode','TicketInsPlan_GHICode']]
+output_file = 'Claim_missing_Payor_in_EDW.xlsx'
+writer = pd.ExcelWriter(cfg.output_file_path+output_file)
+temp.to_excel(writer, sheet_name='Claim_missing_Payor', index = False)
 writer.save()
 writer.close()
 '''
@@ -527,7 +555,7 @@ Appeal_ClaimTicket = ClaimTicket_appeal_wide[['appealCaseNum','CaseappealLvlCnt'
                                               'appealDenReason',
                                               'appealDenReasonDesc', 'appealAmtChg', 'appealAmtChgExp',
                                               'appealAmtAllow', 'appealAmtClmRec', 'appealAmt', 'appealAmtAplRec',
-                                              'appealRptDt', 'appealSuccess', 'appealCurrency'
+                                              'appealRptDt', 'appealSuccess', 'appealCurrency','appealCampaignCode'
        ]].copy()
 #appealRptDt is from completed appeal
 
@@ -548,10 +576,10 @@ writer.save()
 writer.close()
 '''
 
-'''
-Quadax provides the appeal result = success or failed for completed appeal.
-Derive appeal result to include In process and Removed based on the billing case status
-'''
+#############################################################################################
+## Quadax provides the appeal result = success or failed for completed appeal.             ##
+## Derive appeal result to include In process and Removed based on the billing case status ##
+#############################################################################################
 
 ### insert flags for tableau reporting use ###
 Claim2Rev['Failed'], Claim2Rev['Succeed'], Claim2Rev['In Process'], Claim2Rev['Removed'], Claim2Rev['IsAppeal'], Claim2Rev['CompletedAppeal'] = 0,0,0,0,0,0
@@ -577,7 +605,7 @@ b = Claim2Rev.BillingCaseStatusSummary2.isin(QDX_complete_appeal_status)
 Claim2Rev.loc[a & b, 'appealResult'] = 'Removed'
 Claim2Rev.loc[a & b, 'Removed'] = 1
 
-# Scenario appeal case is open with the current ticket for the OLI, BillingCaseStatusSummary2 is not 'Appeal'
+# Scenario appeal case is open with the current ticket for the OLI, BillingCaseStatusSummary2 is not 'Appeal' and not in the completed status
 c = Claim2Rev.BillingCaseStatusSummary2 == 'Appeals'
 Claim2Rev.loc[a & ~b & ~c, 'BillingCaseStatusSummary2'] = 'Appeals'
 
@@ -592,12 +620,12 @@ Claim2Rev.loc[a & ~b, 'BillingCaseStatus'] = 'Final Review'
 a = Claim2Rev.appealResult.isnull()
 Claim2Rev.loc[a & c, 'BillingCaseStatusSummary2'] = 'Claim in Process'
 
-
-# Override isFullyAdjudicated for BillingCaseStatusSummary2 is 'Completed', however, isFullyAdjudicated = 0
+''' Moved up to the top, update IsFullyAdjudicated after pulling the BillingCaseStatus from QDX
+# Override IsFullyAdjudicated for BillingCaseStatusSummary2 is 'Completed', however, isFullyAdjudicated = 0
 a = Claim2Rev.BillingCaseStatusSummary2 == 'Completed'
 b = Claim2Rev.IsFullyAdjudicated == 0
 Claim2Rev.loc[a & b, 'IsFullyAdjudicated'] = 1
-
+'''
 #IsContracted
 a = Claim2Rev.ContractedPrice.isna()
 Claim2Rev['IsContract'] = 1
@@ -607,6 +635,21 @@ Claim2Rev.loc[a,'IsContract'] = 0
 a = Claim2Rev.RevenueStatus == 'Accrual'
 Claim2Rev['IsAccrual'] = 0
 Claim2Rev.loc[a,'IsAccrual'] = 1
+
+
+#### calculate Fully Paid, Partial Paid
+# QDX set BillingCaseStatusSummary1 to 'Paid!' regardless the received payment amount; and 'Written Off' for claims that are fully written off.
+# Added a flag to differential the Fully Paid and Partial Paid
+
+Claim2Rev['Orig_BillingCaseStatus'] = Claim2Rev['BillingCaseStatus']
+a = ((Claim2Rev.BillingCaseStatus =='Paid!') & (Claim2Rev['Revenue Impact Adjustment'] > 0))
+Claim2Rev.loc[a,'BillingCaseStatus'] = 'Partial Paid'
+
+#Total Payment, PayorPaid, PatientPaid, Insurance Adjustment
+# if Total Payment >= Total Billed - Insurance Adjustment, then Fully Paid
+# if Total Payment < Total Billed - Insurance Adjustment, or (Total Payment > 0 and Revenue Impact Adjustment > 0) then Partial Paid
+
+
 ############################################################################
 # Reading and adding QDX priorAuth case status                             #
 # aka pre claim status                                                     #
@@ -651,12 +694,108 @@ Claim2Rev = pd.merge(Claim2Rev, OLI_allowable, how='left', on = 'OLIID')
 a = Claim2Rev.ReportingGroup == 'Node Positive (Micromet)'
 Claim2Rev.loc[a,'ReportingGroup'] = Claim2Rev.loc[a,'NodalStatus'] 
 
-a = (Claim2Rev.Tier1Payor == 'Humana Inc. (CR085626)')
-Claim2Rev.loc[a, 'Tier1Payor'] = 'Humana, Inc. (CR085626)'
-Claim2Rev.loc[a, 'Tier1PayorName'] = 'Humana, Inc.'
+# this is not needed after code change to use the current SFDC Payor Hierarcy
+'''if Payor_Hierarchy == 'Per_Claim_Submission':
+    a = (Claim2Rev.Tier1Payor == 'Humana Inc. (CR085626)')
+    Claim2Rev.loc[a, 'Tier1Payor'] = 'Humana, Inc. (CR085626)'
+    Claim2Rev.loc[a, 'Tier1PayorName'] = 'Humana, Inc.'
+'''
 
-#############################################################################
-#Rearranging Columns
+############################################################
+#   Create a Transpose of the Bill, Adjustment, Revenue    #
+#   This is used for the Adjustment detail view            #
+############################################################
+print ('Claim2Rev_QDX_GHI :: Create a transpose of the Claim2Rev data')
+#'OLIDOS','ClaimPeriodDate',
+#### ClaimPeriodDate is null for OL000772580 and then the pivot_table excluded it
+
+Claim2Rev_tp = Claim2Rev[(~(Claim2Rev.CurrentQDXTicketNumber.isnull()))].copy()
+
+pull_values = ['AccrualRevenue','CashRevenue','USDAccrualRevenue', 'USDCashRevenue',
+               'Total Outstanding', 
+#               'Total Payment', # because this is the sum of Payor Paid + PatientPaid + Refund
+               'PayorPaid', 'PatientPaid',
+#               'Total Billed', # because this is the sum of Charge + CIE
+               'Charge']
+# + list(Adj_code.groupby([category]).groups.keys())
+#                                      'ListPrice', 'ContractedPrice'
+
+TXN_Detail = pd.pivot_table(Claim2Rev_tp, index = ['OLIID','BilledCurrency'], 
+                            values = pull_values, fill_value=0)
+TXN_Detail = TXN_Detail.stack().reset_index()
+TXN_Detail.columns = ['OLIID','Currency','TXNType','TXNAmount']
+
+### read all adjustment transaction from stdPymnt
+temp_adjust = Claim_pymnt[(Claim_pymnt.TXNType.isin(['AC','AD']))] \
+                         [['OLIID', 'TicketNumber', 'Test','TXNAcctPeriod'
+                          ,'TXNCurrency', 'TXNAmount', 'TXNType','TXNLineNumber'
+                          ,'QDXAdjustmentCode', 'Description'
+                          ,'GHIAdjustmentCode','CategoryDesc','TXN Subcategory']].copy()
+
+#missing TXNAcctPeriod
+Summarized_adj = temp_adjust.groupby(['OLIID','TXNCurrency'
+                                      ,'QDXAdjustmentCode', 'Description'
+                                      ,'GHIAdjustmentCode','CategoryDesc','TXN Subcategory']).agg({'TXNAmount' :'sum'})
+Summarized_adj = Summarized_adj.reset_index()
+
+Summarized_adj.rename(columns = {'TXNCurrency':'Currency'}, inplace=True)
+Summarized_adj['TXNType'] = Summarized_adj['GHIAdjustmentCode'] + ':' + Summarized_adj['CategoryDesc']
+
+#######
+TXN_Detail = pd.concat([TXN_Detail,Summarized_adj], sort=False)
+# drop the rows with zeros
+TXN_Detail = TXN_Detail[~(TXN_Detail.TXNAmount == 0)].sort_values(by=['OLIID'])
+
+
+## add TXNCategory and TXNSubCategory
+TXN_Detail['TXNCategory'] = 'Receipts'
+#TXN_Detail['TXN SubCategory'] = 'Adjustment'
+
+# overwrite for Revenue & Billing
+TXNSubCategory_dict = {'USDAccrualRevenue':'USDAccrual', 'USDCashRevenue':'USDCash'}
+for a in list(TXNSubCategory_dict.keys()):
+    TXN_Detail.loc[(TXN_Detail.TXNType==a),'TXNCategory'] = 'USDRevenue'
+    #TXN_Detail.loc[(TXN_Detail.TXNType==a),'TXNSubCategory'] = TXNSubCategory_dict.get(a)
+    
+TXNSubCategory_dict = {'AccrualRevenue':'Accrual', 'CashRevenue':'Cash'}
+for a in list(TXNSubCategory_dict.keys()):
+    TXN_Detail.loc[(TXN_Detail.TXNType==a),'TXNCategory'] = 'Revenue'
+    #TXN_Detail.loc[(TXN_Detail.TXNType==a),'TXNSubCategory'] = TXNSubCategory_dict.get(a)
+
+TXNSubCategory_dict = {'Charge':'Charge', 'GH04:Charged in Error':'Charged in Error'}
+for a in list(TXNSubCategory_dict.keys()):
+    TXN_Detail.loc[TXN_Detail['TXNType'] == a,'TXNCategory'] = 'Billing'
+# TXN_Detail.loc[TXN_Detail['TXNType'] == a,'TXNSubCategory'] = TXNSubCategory_dict.get(a)
+#TXN_Detail.loc[TXN_Detail['TXNType'] == 'GH04:Charged in Error','TXNType'] = 'Charged in Error'
+
+#TXN_Detail.loc[TXN_Detail['TXNType'].isin(['Total Outstanding']),'TXNSubCategory'] = 'Outstanding'
+TXN_Detail.loc[TXN_Detail['TXNType'].isin(['Total Outstanding']),'TXNType'] = 'Outstanding'
+
+#TXN_Detail.loc[TXN_Detail['TXNType'].isin(['PayorPaid','PatientPaid','GH09:Refund & Refund Reversal']),'TXNSubCategory'] = 'Payment'
+#TXN_Detail.loc[TXN_Detail['TXNType'] == 'GH09:Refund & Refund Reversal','TXNTypeDesc'] = 'Refund & Refund Reversal'
+
+
+## Adding the OLI detail
+OLI_detail = OLI_data[['OLIID','Test','TestDeliveredDate'
+                        ,'Tier1Payor','Tier2Payor','Tier2PayorID','Tier4Payor','FinancialCategory','LineOfBenefit'
+                        , 'TerritoryRegion', 'OrderingHCPState']]
+
+
+TXN_Detail = pd.merge(TXN_Detail,OLI_detail,
+                       how='left', left_on='OLIID', right_on='OLIID')
+
+'''
+if Payor_Hierarchy == 'Per_Claim_Submission':
+    a = (TXN_Detail.Tier1Payor == 'Humana Inc. (CR085626)')
+    TXN_Detail.loc[a, 'Tier1Payor'] = 'Humana, Inc. (CR085626)'
+    TXN_Detail.loc[a, 'Tier1PayorName'] = 'Humana, Inc.'
+'''
+
+#########################################
+# Extract Data sets for end users       #
+#########################################
+
+# Export a set for Tableau reports
 Claim2Rev_output = Claim2Rev[['OrderID', 'OLIID', 'Test', 
         'TestDeliveredDate', 'CurrentQDXTicketNumber','QDXTickCnt','QDXCaseCnt',
         'BillingCaseStatusSummary2', 'BillingCaseStatusCode', 'BillingCaseStatus',
@@ -757,7 +896,8 @@ Claim2Rev_USD_excel = Claim2Rev[Claim2Rev.BusinessUnit == 'Domestic'][['OrderID'
         'OrderingHCPCity', 'OrderingHCPState', 'OrderingHCPCountry',
         'IsOrderingHCPCTR', 'IsOrderingHCPPECOS', 
 
-        'appealCaseNum','CurrentQDXCaseNumber',
+#        'appealCaseNum',
+        'CurrentQDXCaseNumber', 'appealCampaignCode',
         'A1', 'A2', 'A3', 'A4', 'A5', 'ER', 'L1', 'L2', 'L3',
 
 #        'A1_Status', 'A2_Status', 'A3_Status', 'A4_Status', 'A5_Status',
@@ -775,14 +915,12 @@ Claim2Rev_USD_excel = Claim2Rev[Claim2Rev.BusinessUnit == 'Domestic'][['OrderID'
         'priorAuthResult', 'priorAuthResult_Category'
         ]]
 
-Claim2Rev_Research = Claim2Rev[Claim2Rev.BusinessUnit == 'Domestic'][['OrderID',
-        'OLIID', 'Test', 'TestDeliveredDate', 'CurrentQDXTicketNumber',
-#        'QDXTickCnt','QDXCaseCnt',
-        'BillingCaseStatusSummary2',
-        'BillingCaseStatusCode', 'BillingCaseStatus',
+Claim2Rev_for_ML = Claim2Rev[Claim2Rev.BusinessUnit == 'Domestic']\
+        [['OrderID', 'OLIID', 'Test', 
+        'TestDeliveredDate', 'CurrentQDXTicketNumber','QDXTickCnt','QDXCaseCnt',
+        'BillingCaseStatusSummary2', 'BillingCaseStatusCode', 'BillingCaseStatus',
         'BilledCurrency', 'ListPrice', 'ContractedPrice', 'Total Outstanding',
-        'Total Billed',
-#        'Charge',
+        'Total Billed', 'Charge',
 
 #        'ClmAmtRec', 
         'Total Payment',
@@ -790,27 +928,22 @@ Claim2Rev_Research = Claim2Rev[Claim2Rev.BusinessUnit == 'Domestic'][['OrderID',
 
 #        'ClmAmtAdj', 'stdP_ClmAmtAdj',
         'Total Adjustment'
-        ] + list(Adj_code.groupby('TXN Subcategory').groups.keys())
-          + list(Adj_code.groupby('Category').groups.keys())
-          +                     
-        [
-            
+        ] + list(Adj_code.groupby('TXN Subcategory').groups.keys()) + [
+ 
         'AllowedAmt',
-#        'Recon_Adjustment','Sum_AdjBreakout',
-        
-#        'Currency', 
-#        'Revenue', 'AccrualRevenue', 'CashRevenue',
-#        'USDRevenue', 'USDAccrualRevenue', 'USDCashRevenue', 
-        
+                
         'Tier1PayorID','Tier1PayorName', 'Tier1Payor',
         'Tier2PayorID', 'Tier2Payor','Tier2PayorName',  
         'Tier4PayorID', 'Tier4Payor','Tier4PayorName',
         'QDXInsPlanCode', 'LineOfBenefit', 'QDXInsFC', 'FinancialCategory',
             
 #        'Reportable', 'IsCharge',
-#        'RevenueStatus',  'TestDelivered', 'IsClaim', 'IsFullyAdjudicated', 'NSInCriteria',
+        'TestDelivered', 'IsClaim', 'IsFullyAdjudicated',
+#        'IsContract', 'IsAccrual',
+#        'RevenueStatus', 'NSInCriteria',
         
-        'Status', 'FailureMessage', #'Status Notes',
+        'Status',
+#         'FailureMessage',#'Status Notes',
 
         'BusinessUnit', 'InternationalArea', 'Division', 'Country', 'OrderingHCPName',
         'Territory', 'TerritoryRegion', 'TerritoryArea',
@@ -819,139 +952,38 @@ Claim2Rev_Research = Claim2Rev[Claim2Rev.BusinessUnit == 'Domestic'][['OrderID',
 
 #        'OLIStartDate', 'DateOfService',
 #        'TicketCnt',
-        'ClaimPeriodDate', 'AccountingPeriodCnt',
+ #       'ClaimPeriodDate', 'AccountingPeriodCnt',
 #        'AccountingPeriodDate_init', 'AccountingPeriodDate_last',
 #        'AllowedAmt_Outliner', 'AllowedAmt', 'DeductibleAmt', 'CoinsAmt'
 
 #        'appealCaseNum',
-        'CurrentQDXCaseNumber',
-        'A1_Status', 'A2_Status', 'A3_Status', 'A4_Status', 'A5_Status',
-        'ER_Status', 'L1_Status', 'L2_Status', 'L3_Status',
+#        'CurrentQDXCaseNumber',
+#        'A1_Status', 'A2_Status', 'A3_Status', 'A4_Status', 'A5_Status',
+#        'ER_Status', 'L1_Status', 'L2_Status', 'L3_Status',
         
-#        'A1', 'A2', 'A3', 'A4', 'A5', 'ER', 'L1', 'L2', 'L3',
-        'Last Appeal level', 'lastappealEntryDt',
-        'appealDenReason','appealDenReasonDesc',
-        'appealAmtChg', 'appealAmtChgExp',
-        'appealAmtAllow', 'appealAmtClmRec', 'appealAmt', 'appealAmtAplRec',
-        'appealRptDt', 'appealSuccess', 'appealCurrency', 'appealResult',
+#        'A1', 'A2', 'A3', 'A4', 'A5', 'ER', 'L1', 'L2', 'L3',  #spelled out status, not needed in Tableau
+#        'Last Appeal level', 'firstappealEntryDt','lastappealEntryDt','appealRptDt',
+#        'appealDenReason','appealDenReasonDesc',
+#        'appealCurrency','appealAmtChg', 'appealAmtChgExp','appealAmtAllow', 'appealAmtClmRec', 
+#        'appealAmt', 'appealAmtAplRec',
+#        'appealSuccess', 
+#        'appealResult',
         
-        'Specialty','NodalStatus', 'SubmittedERStatus','SubmittedHER2', 'MultiplePrimaries',
-#        'RiskGroup','ReportingGroup'
-        'ClinicalStage',
-        'EstimatedNCCNRisk',
-#        'SubmittedNCCNRisk','FavorablePathologyComparison',
-
-        'priorAuthCaseNum','priorAuthEnteredDt','priorAuthEnteredTime', 'priorAuthDate',
-        'priorAuthResult','priorAuthReqDesc','priorAuthNumber',
-        'priorAuthResult_Category','PreClaim_Failure'   
+#        'IsAppeal','CompletedAppeal','Failed','Succeed','In Process','Removed',
+        
+        'Specialty','NodalStatus','PatientAgeAtOrderStart',
+        'SubmittingDiagnosis','RiskGroup','ReportingGroup','HCPProvidedClinicalStage',
+        'SubmittedER', 'SubmittedHER2','SubmittedPR','MultiplePrimaries',
+        'RecurrenceScore','HER2GeneScore','ERGeneScore','PRGeneScore','DCISScore',
+        'HCPProvidedGleasonScore','HCPProvidedPSA',
+        'EstimatedNCCNRisk', 'SubmittedNCCNRisk', 'SFDCSubmittedNCCNRisk','FavorablePathologyComparison',
+        
+        
+ #       'priorAuthCaseNum','priorAuthEnteredDt','priorAuthEnteredTime',
+ #       'priorAuthDate',
+ #       'priorAuthResult','priorAuthReqDesc','priorAuthNumber',
+ #       'priorAuthResult_Category'
         ]]
-
-############################################################
-#   Create a Transpose of the Bill, Adjustment, Revenue    #
-#   This is used for the Adjustment detail view            #
-############################################################
-print ('Claim2Rev_QDX_GHI :: Create a transpose of the Claim2Rev data')
-#'OLIDOS','ClaimPeriodDate',
-#### ClaimPeriodDate is null for OL000772580 and then the pivot_table excluded it
-
-Claim2Rev_tp = Claim2Rev[(~(Claim2Rev.CurrentQDXTicketNumber.isnull()))].copy()
-
-pull_values = ['AccrualRevenue','CashRevenue','USDAccrualRevenue', 'USDCashRevenue',
-               'Total Outstanding', 
-#               'Total Payment', # because this is the sum of Payor Paid + PatientPaid + Refund
-               'PayorPaid', 'PatientPaid',
-#               'Total Billed', # because this is the sum of Charge + CIE
-               'Charge']
-# + list(Adj_code.groupby([category]).groups.keys())
-#                                      'ListPrice', 'ContractedPrice'
-
-TXN_Detail = pd.pivot_table(Claim2Rev_tp, index = ['OLIID','BilledCurrency'], 
-                            values = pull_values, fill_value=0)
-TXN_Detail = TXN_Detail.stack().reset_index()
-TXN_Detail.columns = ['OLIID','Currency','TXNType','TXNAmount']
-
-### read all adjustment transaction from stdPymnt
-temp_adjust = Claim_pymnt[(Claim_pymnt.TXNType.isin(['AC','AD']))] \
-                         [['OLIID', 'TicketNumber', 'Test','TXNAcctPeriod'
-                          ,'TXNCurrency', 'TXNAmount', 'TXNType','TXNLineNumber'
-                          ,'QDXAdjustmentCode', 'Description'
-                          ,'GHIAdjustmentCode','CategoryDesc','TXN Subcategory']].copy()
-
-#missing TXNAcctPeriod
-Summarized_adj = temp_adjust.groupby(['OLIID','TXNCurrency'
-                                      ,'QDXAdjustmentCode', 'Description'
-                                      ,'GHIAdjustmentCode','CategoryDesc','TXN Subcategory']).agg({'TXNAmount' :'sum'})
-Summarized_adj = Summarized_adj.reset_index()
-
-Summarized_adj.rename(columns = {'TXNCurrency':'Currency'}, inplace=True)
-Summarized_adj['TXNType'] = Summarized_adj['GHIAdjustmentCode'] + ':' + Summarized_adj['CategoryDesc']
-
-#######
-TXN_Detail = pd.concat([TXN_Detail,Summarized_adj], sort=False)
-# drop the rows with zeros
-TXN_Detail = TXN_Detail[~(TXN_Detail.TXNAmount == 0)].sort_values(by=['OLIID'])
-
-
-## add TXNCategory and TXNSubCategory
-TXN_Detail['TXNCategory'] = 'Receipts'
-#TXN_Detail['TXN SubCategory'] = 'Adjustment'
-
-# overwrite for Revenue & Billing
-TXNSubCategory_dict = {'USDAccrualRevenue':'USDAccrual', 'USDCashRevenue':'USDCash'}
-for a in list(TXNSubCategory_dict.keys()):
-    TXN_Detail.loc[(TXN_Detail.TXNType==a),'TXNCategory'] = 'USDRevenue'
-    #TXN_Detail.loc[(TXN_Detail.TXNType==a),'TXNSubCategory'] = TXNSubCategory_dict.get(a)
-    
-TXNSubCategory_dict = {'AccrualRevenue':'Accrual', 'CashRevenue':'Cash'}
-for a in list(TXNSubCategory_dict.keys()):
-    TXN_Detail.loc[(TXN_Detail.TXNType==a),'TXNCategory'] = 'Revenue'
-    #TXN_Detail.loc[(TXN_Detail.TXNType==a),'TXNSubCategory'] = TXNSubCategory_dict.get(a)
-
-TXNSubCategory_dict = {'Charge':'Charge', 'GH04:Charged in Error':'Charged in Error'}
-for a in list(TXNSubCategory_dict.keys()):
-    TXN_Detail.loc[TXN_Detail['TXNType'] == a,'TXNCategory'] = 'Billing'
-# TXN_Detail.loc[TXN_Detail['TXNType'] == a,'TXNSubCategory'] = TXNSubCategory_dict.get(a)
-#TXN_Detail.loc[TXN_Detail['TXNType'] == 'GH04:Charged in Error','TXNType'] = 'Charged in Error'
-
-#TXN_Detail.loc[TXN_Detail['TXNType'].isin(['Total Outstanding']),'TXNSubCategory'] = 'Outstanding'
-TXN_Detail.loc[TXN_Detail['TXNType'].isin(['Total Outstanding']),'TXNType'] = 'Outstanding'
-
-#TXN_Detail.loc[TXN_Detail['TXNType'].isin(['PayorPaid','PatientPaid','GH09:Refund & Refund Reversal']),'TXNSubCategory'] = 'Payment'
-#TXN_Detail.loc[TXN_Detail['TXNType'] == 'GH09:Refund & Refund Reversal','TXNTypeDesc'] = 'Refund & Refund Reversal'
-
-
-## Adding the OLI detail
-OLI_detail = OLI_data[['OLIID','Test','TestDeliveredDate'
-                        ,'Tier1Payor','Tier2Payor','Tier2PayorID','Tier4Payor','FinancialCategory','LineOfBenefit'
-                        , 'TerritoryRegion', 'OrderingHCPState']]
-
-
-TXN_Detail = pd.merge(TXN_Detail,OLI_detail,
-                       how='left', left_on='OLIID', right_on='OLIID')
-
-
-a = (TXN_Detail.Tier1Payor == 'Humana Inc. (CR085626)')
-TXN_Detail.loc[a, 'Tier1Payor'] = 'Humana, Inc. (CR085626)'
-TXN_Detail.loc[a, 'Tier1PayorName'] = 'Humana, Inc.'
-
-#########################################
-#   Add the Payor View Set assignment   #
-#########################################
-prep_file_name = "Payor-ViewSetAssignment.xlsx"
-
-Payor_view = pd.read_excel(cfg.prep_file_path+prep_file_name, sheet_name = "SetAssignment", usecols="B:C", encoding='utf-8-sig')
-
-for i in Payor_view.Set.unique() :
-    #print (i)
-    code = Payor_view[Payor_view.Set==i].Tier2PayorID
-    Claim2Rev_output.loc[Claim2Rev_output.Tier2PayorID.isin(list(code)),i] = '1'
-    
-    code = Payor_view[Payor_view.Set==i].Tier2PayorID
-    TXN_Detail.loc[TXN_Detail.Tier2PayorID.isin(list(code)),i] = '1'   
-
-#########################################
-# Extract Data set for end users        #
-#########################################
 
 #Extract data set of IBC Appeals Detail 
 Cond = (Claim2Rev.BusinessUnit == 'Domestic') & \
@@ -993,7 +1025,22 @@ Prostate_Appeals_Detail.columns = [['Tier1PayorID','Tier1PayorName','Tier2PayorI
                                 'A1', 'A2', 'A3', 'A4', 'A5', 'ER', 'L1', 'L2', 'L3',
                                 'Appeal Amt','Appeal Amt Apl Rec']]  
 
+#########################################
+#   Add the Payor View Set assignment   #
+#########################################
+prep_file_name = "Payor-ViewSetAssignment.xlsx"
 
+Payor_view = pd.read_excel(cfg.prep_file_path+prep_file_name, sheet_name = "SetAssignment", usecols="B:C", encoding='utf-8-sig')
+
+for i in Payor_view.Set.unique() :
+    #print (i)
+    code = Payor_view[Payor_view.Set==i].Tier2PayorID
+    Claim2Rev_output.loc[Claim2Rev_output.Tier2PayorID.isin(list(code)),i] = '1'
+    
+    code = Payor_view[Payor_view.Set==i].Tier2PayorID
+    TXN_Detail.loc[TXN_Detail.Tier2PayorID.isin(list(code)),i] = '1'   
+    
+    
 ###############################################
 #     Write the columns into a excel file     #
 ###############################################
@@ -1030,12 +1077,10 @@ Prostate_Appeals_Detail.to_excel(writer, index = False)
 writer.save()
 writer.close()
 
-print ('Claim2Rev_QDX_GHI :: write Claim2Rev April Research xlsx report ', len(Claim2Rev_Research), 'rows :: start ::', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-output_file = 'Claim2Rev_April_Research.xlsx'
-writer = pd.ExcelWriter(cfg.output_file_path+output_file, engine='openpyxl', date_format='yyyy/mm/dd')
-Claim2Rev_Research.to_excel(writer, sheet_name='Claim2Rev_DenialResearch', index = False)
-writer.save()
-writer.close()
+print ('Claim2Rev_QDX_GHI :: write Claim2Rev output for ML ', len(Claim2Rev_for_ML), 'rows :: start ::', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+output_file = 'Claim2Rev_ML.txt'
+Claim2Rev_for_ML.to_csv(cfg.output_file_path+output_file, sep='|',index=False)
+
 
 '''
 #PreClaim Status for Ron's

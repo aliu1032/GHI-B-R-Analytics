@@ -33,7 +33,7 @@ def make_appeal_data(file_path, refresh):
     appeal = QData.appeal_case_status(file_path, refresh)
     complete_appeal = QData.complete_appeal_case(file_path, refresh) # this file only contains cases of the prior 2 years of the day of extract
     case_reference = QData.claim_case_status('case_reference',file_path, refresh)
-     
+
     ########################################################################################################
     #                                                                                                      #
     #  Appeal Data Preparation                                                                             #
@@ -45,6 +45,10 @@ def make_appeal_data(file_path, refresh):
     #  Drop the appeal rows if there is no information on                        #
     #  which ticket and OLI is the appeal case for                               #
     ##############################################################################
+    
+    
+    # update the inconsistent campaign code
+    appeal.loc[appeal.appealCampaignCode == 'uhclnp'] = 'UHCLNP'
     
     # case status is the billing case status in OLI
     # append OLI, claim ticket number, caseEntryYrMth to appeal status
@@ -65,73 +69,6 @@ def make_appeal_data(file_path, refresh):
     
     complete_appeal.loc[(complete_appeal.appealAmtAplRec != 0), 'appealAmtAplRec'] = complete_appeal.loc[(complete_appeal.appealAmtAplRec != 0), 'appealAmtAplRec'] * -1 
 
-    #########################################
-    #  Data exploration                     #
-    #  Filter the scenario needs checking   #
-    #########################################
-    
-    ## Group appeal case and appeal case level. confirmed there is 1 row for appealCaseNum + appealLvl
-    a = appeal.groupby(['appealCaseNum','appealLvl']).size()
-    b = a[a>1].index.get_level_values('appealCaseNum')  
-    
-    ## Group the appeal case. CaseNum : TickNum is 1:1
-    a = appeal.groupby(['appealCaseNum'])['appealTickNum'].nunique()
-    b = a[a>1].index.get_level_values('appealCaseNum')  
-    
-    a = appeal.groupby(['appealTickNum'])['appealCaseNum'].nunique()
-    b = a[a>1].index.get_level_values('appealTickNum') 
-
-    ## Group the OLI. Find the OLI appeal with multiple cases/tickets
-    a = appeal.groupby(['appealAccession'])['appealCaseNum'].nunique()
-    b = a[a>1].index.get_level_values('appealAccession')  
-            ## alt way
-    a = appeal.pivot_table(index=['appealAccession'], values=['appealCaseNum'], aggfunc = lambda appealCaseNum: len(appealCaseNum.unique()))
-    c = list(a[(a.appealCaseNum >1)].index)
-    
-    ## Group the appeal case and find the cases which have multiple appeal insurance at different level
-    a = appeal.groupby(['appealCaseNum'])['appealInsCode'].nunique()
-    b = a[a>1].index.get_level_values('appealCaseNum')  
-
-    ## Group the appeal case and find the cases which have multiple appeal denial reason at different level
-    a = appeal.groupby(['appealCaseNum'])['appealDenReason'].nunique()
-    b = a[a>1].index.get_level_values('appealCaseNum')  
- 
-    ## Group completed appeal by OLI and check for multiple cases. Export the OLI for further research
-    ## It is assumed a OLI is mapped to 1 QDX Case number: Wrong, an OLI can have multiple cases, each case can be an appeal cycle
-    a = pd.pivot_table(complete_appeal, index=['appealAccession'], values=['appealCaseNum'], aggfunc = lambda appealCaseNum: len(appealCaseNum.unique()))
-    b = list(a[(a.appealCaseNum > 1)].index) # find the OrderLineItemID with multiple cases
-    
-    '''
-    There are rows for a Claim Case + n Appeal Level. The denial reason typically unique for a claim case. 
-    If a claim have been appealed for multiple denial reasons, the denial reasons would be vary for different levels.
-    
-    #explore case status on OLI, case number, ticket number
-    
-    ## Group appeal case and appealEntryDt.
-    ## assumed that every appeal level has different entry date, and the appeal level with the latest entry date is the latest appeal case
-    ## however, there are cases with multiple appeal levels enters on the same date
-    a = appeal_status.groupby(['appealCaseNumber','appealEntryDt']).size()
-    b = a[a>1].index.get_level_values('appealCaseNumber')
-    appeal_status[(appeal_status.appealCaseNumber.isin(b))][['appealCaseNumber','appealLvl','appealStatus','appealEntryDt','appealDenialDt']]
-    ## -> change to use also appealDenial Letter Dt??
-    
-    ## Double check data model in case file
-    #a = case_status.groupby(['caseAccession','caseCaseNum']).size()
-    #b = a[a>1].index.get_level_values('caseAccession')
-    
-    a = pd.pivot_table(case_status, index=['caseAccession'], values=['caseCaseNum'], aggfunc = lambda caseCaseNum: len(caseCaseNum.unique()))
-    b = list(a[(a.caseCaseNum > 1)].index) 
-    ## There are multiple QDX case for an OLI
-    
-    a = pd.pivot_table(case_status, index=['caseAccession'], values=['caseTicketNum'], aggfunc = lambda caseTicketNum: len(caseTicketNum.unique()))
-    b = list(a[(a.caseTicketNum > 1)].index) # find the OrderLineItemID with multiple cases
-    ## There are multiple QDX ticket for an OLI
-    
-    a = pd.pivot_table(case_status, index=['caseCaseNum'], values=['caseTicketNum'], aggfunc = lambda caseTicketNum: len(caseTicketNum.unique()))
-    b = list(a[(a.caseTicketNum > 1)].index) # find the OrderLineItemID with multiple cases
-    ## Each QDX Case is associated with 1 QDX Ticket
-    '''
- 
     ###################################################################
     #  Shape appeal status into appeal history - wide appeal level    #
     #  Assumption: AppealCaseNumber + Appeal Lvl is unique            #
@@ -144,7 +81,7 @@ def make_appeal_data(file_path, refresh):
     temp_appeal = appeal[['appealCaseNum','appealTickNum','appealAccession','appealInsCode',\
 #                          'appealLvl','appealStatus',\
                           'appealLvlCode','appealStatus','appealStatusDesc',\
-                          'appealDenialDt','appealReportDt','appealEntryDt','appealDenReason','appealDenReasonDesc']].copy()
+                          'appealDenialDt','appealReportDt','appealEntryDt','appealDenReason','appealDenReasonDesc','appealCampaignCode']].copy()
     # translate the appeallvl to appeallvl code by dict
 #    temp_appeal['appealLvlCode'] = temp_appeal['appealLvl'].astype(str).replace(appeal_level_dict)
                                  
@@ -195,17 +132,16 @@ def make_appeal_data(file_path, refresh):
  
     appealcase_wide['A4_ReportDt'] = ''
     appealcase_wide['L2_ReportDt'] = ''
-    
-   
+      
     # find the OLI latest denial reason from the latest record.
     # use appealDenialDt as it has less missing data than appealEntryDt
-    # Jan 3: change to align with BI code
-    # use appealEntryDt, if null, then look up the appealDenDt
-    a = temp_appeal.groupby(['appealAccession'])['appealDenialDt'].idxmax(skipna = True)
+#    a = temp_appeal.groupby(['appealAccession'])['appealDenialDt'].idxmax(skipna = True)
+    temp = temp_appeal.groupby(['appealAccession'])['appealDenialDt']
+    a = temp.apply((lambda x : x.keys()[x.values.argmax()]))
     #a = temp_appeal.groupby(['appealAccession'])['appealEntryDt'].idxmax(skipna = True)
     OLI_latest_denial = temp_appeal.loc[a][['appealCaseNum','appealTickNum','appealAccession','appealInsCode',\
                                             'appealLvlCode', 'appealDenReason','appealDenReasonDesc',\
-                                            'appealEntryDt','appealDenialDt']].reset_index(drop = True)
+                                            'appealEntryDt','appealDenialDt', 'appealCampaignCode']].reset_index(drop = True)
                                             # 'appealReportDt',
     OLI_latest_denial.rename(columns = {'appealLvlCode' : 'Last Appeal level',
                                         'appealDenReason':'lastappealDenReason',
@@ -218,7 +154,10 @@ def make_appeal_data(file_path, refresh):
     # find the OLI first denial and get the appealReportDt
     # there are appealAccession without any information on the ReportDt. 
     # when groupby to find the init appealReportDt, OLI with no reportdt causes issue
-    a = temp_appeal.groupby(['appealAccession'])['appealEntryDt'].idxmin(skipna = True)
+#    a = temp_appeal.groupby(['appealAccession'])['appealEntryDt'].idxmin(skipna = True)
+    temp = temp_appeal.groupby(['appealAccession'])['appealEntryDt']
+    a = temp.apply((lambda x: x.keys()[x.values.argmin()]))
+                                       
     OLI_init_denial = temp_appeal.loc[a][['appealAccession','appealEntryDt']].reset_index(drop = True)
     OLI_init_denial.columns = ['appealAccession','firstappealEntryDt']
     OLI_latest_denial = pd.merge(OLI_latest_denial, OLI_init_denial, how = 'left', on=['appealAccession'])
@@ -227,7 +166,8 @@ def make_appeal_data(file_path, refresh):
     appealcase_wide = pd.merge(appealcase_wide, OLI_latest_denial[['appealAccession','OLIappealLvlCnt','Last Appeal level',
                                                                    'lastappealDenReason','lastappealDenReasonDesc',
                                                                    'lastappealEntryDt',
-                                                                   'lastDenialInsCode','lastappealDenialDt', 'firstappealEntryDt']],
+                                                                   'lastDenialInsCode','lastappealDenialDt', 'firstappealEntryDt',
+                                                                   'appealCampaignCode']],
                                how='left',left_on=['appealAccession'],right_on=['appealAccession'])
                                        
     #create appeal_history_wide with complete status
@@ -271,7 +211,7 @@ def make_appeal_data(file_path, refresh):
                      'appealLvl','appealLvlCode','appealLvlDesc',
                      'appealStatus','appealStatusDesc',
                      'appealSuccess',
-                     'appealDenialDt','appealReportDt',
+                     'appealDenialDt','appealReportDt',  'appealCampaignCode',
                      'appealAllowed','CaseappealLvlCnt', 'OLIappealLvlCnt']].sort_values(by=['appealAccession','appealCaseNum','appealTickNum'])
 
        
@@ -305,7 +245,7 @@ def make_appeal_data(file_path, refresh):
                     'appealReqNum', 'appealDOS',
                     'appealInsCode', 'appealInsFC', 'Last Appeal level', 'appealDenReason', 'appealDenReasonDesc',
 
-                    'lastDenialInsCode','lastappealDenialDt','firstappealEntryDt','lastappealEntryDt',
+                    'lastDenialInsCode','lastappealDenialDt','firstappealEntryDt','lastappealEntryDt', 'appealCampaignCode',
 
                     'appealAmtChg', 'appealAmtChgExp', 'appealAmtAllow', 'appealAmtClmRec',
                     'appealAmt', 'appealAmtAplRec', 'appealRptDt', 'appealSuccess',
@@ -330,3 +270,71 @@ def make_appeal_data(file_path, refresh):
     writer.close()
 
 '''
+'''
+    #########################################
+    #  Data exploration                     #
+    #  Filter the scenario needs checking   #
+    #########################################
+    
+    ## Group appeal case and appeal case level. confirmed there is 1 row for appealCaseNum + appealLvl
+    a = appeal.groupby(['appealCaseNum','appealLvl']).size()
+    b = a[a>1].index.get_level_values('appealCaseNum')  
+    
+    ## Group the appeal case. CaseNum : TickNum is 1:1
+    a = appeal.groupby(['appealCaseNum'])['appealTickNum'].nunique()
+    b = a[a>1].index.get_level_values('appealCaseNum')  
+    
+    a = appeal.groupby(['appealTickNum'])['appealCaseNum'].nunique()
+    b = a[a>1].index.get_level_values('appealTickNum') 
+
+    ## Group the OLI. Find the OLI appeal with multiple cases/tickets
+    a = appeal.groupby(['appealAccession'])['appealCaseNum'].nunique()
+    b = a[a>1].index.get_level_values('appealAccession')  
+            ## alt way
+    a = appeal.pivot_table(index=['appealAccession'], values=['appealCaseNum'], aggfunc = lambda appealCaseNum: len(appealCaseNum.unique()))
+    c = list(a[(a.appealCaseNum >1)].index)
+    
+    ## Group the appeal case and find the cases which have multiple appeal insurance at different level
+    a = appeal.groupby(['appealCaseNum'])['appealInsCode'].nunique()
+    b = a[a>1].index.get_level_values('appealCaseNum')  
+
+    ## Group the appeal case and find the cases which have multiple appeal denial reason at different level
+    a = appeal.groupby(['appealCaseNum'])['appealDenReason'].nunique()
+    b = a[a>1].index.get_level_values('appealCaseNum')  
+ 
+    ## Group completed appeal by OLI and check for multiple cases. Export the OLI for further research
+    ## It is assumed a OLI is mapped to 1 QDX Case number: Wrong, an OLI can have multiple cases, each case can be an appeal cycle
+    a = pd.pivot_table(complete_appeal, index=['appealAccession'], values=['appealCaseNum'], aggfunc = lambda appealCaseNum: len(appealCaseNum.unique()))
+    b = list(a[(a.appealCaseNum > 1)].index) # find the OrderLineItemID with multiple cases
+'''
+'''
+    There are rows for a Claim Case + n Appeal Level. The denial reason typically unique for a claim case. 
+    If a claim have been appealed for multiple denial reasons, the denial reasons would be vary for different levels.
+    
+    #explore case status on OLI, case number, ticket number
+    
+    ## Group appeal case and appealEntryDt.
+    ## assumed that every appeal level has different entry date, and the appeal level with the latest entry date is the latest appeal case
+    ## however, there are cases with multiple appeal levels enters on the same date
+    a = appeal_status.groupby(['appealCaseNumber','appealEntryDt']).size()
+    b = a[a>1].index.get_level_values('appealCaseNumber')
+    appeal_status[(appeal_status.appealCaseNumber.isin(b))][['appealCaseNumber','appealLvl','appealStatus','appealEntryDt','appealDenialDt']]
+    ## -> change to use also appealDenial Letter Dt??
+    
+    ## Double check data model in case file
+    #a = case_status.groupby(['caseAccession','caseCaseNum']).size()
+    #b = a[a>1].index.get_level_values('caseAccession')
+    
+    a = pd.pivot_table(case_status, index=['caseAccession'], values=['caseCaseNum'], aggfunc = lambda caseCaseNum: len(caseCaseNum.unique()))
+    b = list(a[(a.caseCaseNum > 1)].index) 
+    ## There are multiple QDX case for an OLI
+    
+    a = pd.pivot_table(case_status, index=['caseAccession'], values=['caseTicketNum'], aggfunc = lambda caseTicketNum: len(caseTicketNum.unique()))
+    b = list(a[(a.caseTicketNum > 1)].index) # find the OrderLineItemID with multiple cases
+    ## There are multiple QDX ticket for an OLI
+    
+    a = pd.pivot_table(case_status, index=['caseCaseNum'], values=['caseTicketNum'], aggfunc = lambda caseTicketNum: len(caseTicketNum.unique()))
+    b = list(a[(a.caseTicketNum > 1)].index) # find the OrderLineItemID with multiple cases
+    ## Each QDX Case is associated with 1 QDX Ticket
+'''
+
