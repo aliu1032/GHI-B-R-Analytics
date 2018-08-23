@@ -37,24 +37,22 @@ def OLI_detail(usage, folder, refresh=1, PayorHierarchy = 'At_OrderCapture'):
     #database = 'StagingDB'
     database = 'EDWDB'
     
-    if PayorHierarchy == 'At_OrderCapture':
-        target = server + '_' + database + '_' + 'OrderLineDetail.txt'
-    else:
-        target = server + '_' + database + '_' + 'OrderLineDetail_CurrentPayorHierarchy.txt'
+    #if PayorHierarchy == 'At_OrderCapture':
+    target = server + '_' + database + '_' + 'OrderLineDetail.txt'
+    #else:
+    #    target = server + '_' + database + '_' + 'OrderLineDetail_CurrentPayorHierarchy.txt'
         
     if refresh:    
         cnxn = pyodbc.connect('Trusted_Connection=yes',DRIVER='{ODBC Driver 13 for SQL Server}', SERVER=server, DATABASE=database)
        
-        #f = open(sql_folder + 'StagingDB_Analytics_OrderDetail.sql')
-        
-        if PayorHierarchy == 'At_OrderCapture':
-            f = open(cfg.sql_folder + 'EDWDB_fctOrderLineItem.sql')
-            tsql = f.read()
-            f.close()
-        else:
-            f = open(cfg.sql_folder + 'EDWDB_fctOrderLineItem_CurrentPayorHierarchy.sql')
-            tsql = f.read()
-            f.close()
+        #if PayorHierarchy == 'At_OrderCapture':
+        f = open(cfg.sql_folder + 'EDWDB_fctOrderLineItem.sql')
+        tsql = f.read()
+        f.close()
+        #else:
+        #    f = open(cfg.sql_folder + 'EDWDB_fctOrderLineItem_CurrentPayorHierarchy.sql')
+        #    tsql = f.read()
+        #    f.close()
             
         output = pd.read_sql(tsql, cnxn)
         output.to_csv(folder + target, sep='|', index=False)
@@ -348,6 +346,9 @@ def getPTC (usage, folder, refresh = 1):
         
     return(output)
 
+#################################################
+#   getPTV                                      #
+#################################################
 
 def getPTV (usage, folder, refresh = 1):
     
@@ -372,6 +373,45 @@ def getPTV (usage, folder, refresh = 1):
         output = pd.read_csv(folder + target, sep="|", encoding="ISO-8859-1")
         
     return(output)
+
+#################################################
+#   stgBills                                    #
+#################################################
+
+def getPayors (usage, folder, refresh = 1):
+    
+    print ("function : GetGHIData: get Payors :: start :: ", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    print ('usage = ', usage,'\nrefresh = ', refresh, '\nfolder is ', folder, "\n\n")
+    
+    #server = 'EDWStage'    
+    database = 'StagingDB'
+    target = server + '_' + database + '_' + 'SFDC_Payors.txt'
+    
+    if refresh:
+        cnxn = pyodbc.connect('Trusted_Connection=yes',DRIVER='{ODBC Driver 13 for SQL Server}',SERVER=server)
+
+        f = open(cfg.sql_folder + 'SFDC_Payor_Plan_HCO_Hierarchy.sql')
+        tsql = f.read()
+        f.close()
+
+        output = pd.read_sql(tsql, cnxn)
+        output.to_csv(folder + target, sep='|', index=False)
+        
+    else:
+        output = pd.read_csv(folder + target, sep="|", encoding="ISO-8859-1")
+    
+    
+    output['Tier1Payor'] = output.Tier1PayorName + " (" + output.Tier1PayorID + ")"
+    output['Tier2Payor'] = output.Tier2PayorName + " (" + output.Tier2PayorID + ")"
+    output['Tier4Payor'] = output.Tier4PayorName + " (" + output.Tier4PayorID + ")"
+
+    select_column = ['Tier1Payor', 'Tier1PayorName', 'Tier1PayorID',
+                      'Tier2Payor', 'Tier2PayorName', 'Tier2PayorID',
+                      'Tier4PayorID'
+                      #'Tier4Payor', 'Tier4PayorName', 
+                    ]
+  
+    return(output[select_column])
 #################################################
 #   stgBills                                    #
 #################################################

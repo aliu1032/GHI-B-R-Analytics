@@ -23,7 +23,7 @@ for i in build:
     
     print ('PayorCrieria :: start :: ', i ,'   ',datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
     
-    PTC_Header = ['Name','Policy','Test','Tier2PayorName','Tier2PayorId','Tier4PayorName','Tier4PayorId','QDX_InsPlan_Code','Financial_Category','Line_of_Business']
+    PTC_Header = ['Name','Policy','Test','Tier2PayorName','Tier2PayorID','Tier4PayorName','Tier4PayorID','QDX_InsPlan_Code','Financial_Category','Line_of_Business']
     test_criteria = criteria_enum[criteria_enum.Test==i].SFDC_API_Name.unique()  # test_criteria is a array
     #criteria_condition = criteria_enum[criteria_enum.Test==i].Criteria_Enum.unique()
     Wide_PTC = PTC[PTC.Test == i][PTC_Header + list(test_criteria)]

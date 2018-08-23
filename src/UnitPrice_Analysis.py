@@ -127,4 +127,7 @@ Claim_pymnt[(Claim_pymnt.OLIID == 'OL001000653') & (Claim_pymnt.TXNType=='RI')][
                                                                                  'TXNLineNumber','TXNType','TXNAmount','PymntInsPlan_GHICode','stdPymntAllowedAmt',
                                                                                  'stdPymntDeductibleAmt','stdPymntCoinsAmt']]
 
+# Patient has a deductible and out of pocket before insurance pay. Though there insurance allow an amount, insurance did not make the payment
+# OL000908861
 
+# OL000756219

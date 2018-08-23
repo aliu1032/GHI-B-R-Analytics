@@ -360,7 +360,7 @@ prep_file_name = "QDX_ClaimDataPrep.xlsx"
 Adj_code = pd.read_excel(cfg.prep_file_path+prep_file_name, sheet_name = "AdjustmentCode", usecols="A,C:E,G", encoding='utf-8-sig')
 Adj_code.columns = [cell.strip() for cell in Adj_code.columns]
 
-category = 'TXN Subcategory'
+category = 'BR_Category'
 temp = Adj_code.groupby([category])
 
 Adjust_Category = pd.DataFrame()
@@ -730,12 +730,12 @@ temp_adjust = Claim_pymnt[(Claim_pymnt.TXNType.isin(['AC','AD']))] \
                          [['OLIID', 'TicketNumber', 'Test','TXNAcctPeriod'
                           ,'TXNCurrency', 'TXNAmount', 'TXNType','TXNLineNumber'
                           ,'QDXAdjustmentCode', 'Description'
-                          ,'GHIAdjustmentCode','CategoryDesc','TXN Subcategory']].copy()
+                          ,'GHIAdjustmentCode','CategoryDesc','BR_Category']].copy()
 
 #missing TXNAcctPeriod
 Summarized_adj = temp_adjust.groupby(['OLIID','TXNCurrency'
                                       ,'QDXAdjustmentCode', 'Description'
-                                      ,'GHIAdjustmentCode','CategoryDesc','TXN Subcategory']).agg({'TXNAmount' :'sum'})
+                                      ,'GHIAdjustmentCode','CategoryDesc','BR_Category']).agg({'TXNAmount' :'sum'})
 Summarized_adj = Summarized_adj.reset_index()
 
 Summarized_adj.rename(columns = {'TXNCurrency':'Currency'}, inplace=True)
@@ -808,7 +808,7 @@ Claim2Rev_output = Claim2Rev[['OrderID', 'OLIID', 'Test',
 
 #        'ClmAmtAdj', 'stdP_ClmAmtAdj',
         'Total Adjustment'
-        ] + list(Adj_code.groupby('TXN Subcategory').groups.keys()) + [
+        ] + list(Adj_code.groupby('BR_Category').groups.keys()) + [
  
         'AllowedAmt',
         
@@ -855,8 +855,7 @@ Claim2Rev_output = Claim2Rev[['OrderID', 'OLIID', 'Test',
         
         'Specialty','NodalStatus','RecurrenceScore','PatientAgeAtOrderStart',
         'RiskGroup','ReportingGroup','HCPProvidedClinicalStage','HCPProvidedGleasonScore','HCPProvidedPSA',
-        'EstimatedNCCNRisk', 'SubmittedNCCNRisk', 'SFDCSubmittedNCCNRisk','FavorablePathologyComparison',
-        
+        'EstimatedNCCNRisk', 'SubmittedNCCNRisk', 'SFDCSubmittedNCCNRisk','FavorablePathologyComparison',        
         
         'priorAuthCaseNum','priorAuthEnteredDt','priorAuthEnteredTime',
         'priorAuthDate',
@@ -867,7 +866,7 @@ Claim2Rev_output = Claim2Rev[['OrderID', 'OLIID', 'Test',
 #Export a dataset in excel for Jodi, includes Domestic Orders
 Claim2Rev_USD_excel = Claim2Rev[Claim2Rev.BusinessUnit == 'Domestic'][['OrderID',
         'OLIID', 'Test','OrderStartDate', 'TestDeliveredDate', 'CurrentQDXTicketNumber',
-        'BillingCaseStatusSummary2', 'BillingCaseStatusCode', 'BillingCaseStatus',
+        'BillingCaseStatusSummary2', 'BillingCaseStatusCode', 'BillingCaseStatus', 
         'BilledCurrency', 
         'ListPrice', 'ContractedPrice', 'Total Outstanding',
         'Total Billed', 'Charge', 'Charged in Error',
@@ -918,7 +917,7 @@ Claim2Rev_USD_excel = Claim2Rev[Claim2Rev.BusinessUnit == 'Domestic'][['OrderID'
 Claim2Rev_for_ML = Claim2Rev[Claim2Rev.BusinessUnit == 'Domestic']\
         [['OrderID', 'OLIID', 'Test', 
         'TestDeliveredDate', 'CurrentQDXTicketNumber','QDXTickCnt','QDXCaseCnt',
-        'BillingCaseStatusSummary2', 'BillingCaseStatusCode', 'BillingCaseStatus',
+        'BillingCaseStatusSummary2', 'BillingCaseStatusCode', 'BillingCaseStatus','Orig_BillingCaseStatus',
         'BilledCurrency', 'ListPrice', 'ContractedPrice', 'Total Outstanding',
         'Total Billed', 'Charge',
 
@@ -928,7 +927,7 @@ Claim2Rev_for_ML = Claim2Rev[Claim2Rev.BusinessUnit == 'Domestic']\
 
 #        'ClmAmtAdj', 'stdP_ClmAmtAdj',
         'Total Adjustment'
-        ] + list(Adj_code.groupby('TXN Subcategory').groups.keys()) + [
+        ] + list(Adj_code.groupby('BR_Category').groups.keys()) + [
  
         'AllowedAmt',
                 

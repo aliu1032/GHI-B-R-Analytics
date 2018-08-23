@@ -24,8 +24,8 @@ for i in build:
     print ('PayorTestValidation :: start :: ', i ,'   ',datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
     
     select_columns = ['Name', 'LastModifiedDate',
-                       'Tier2PayorId', 'Tier2Payor', 'Line_of_Business',
-                       'Tier4PayorId', 'Tier4Payor', 'QDX_InsPlan_Code', 'Line_of_Benefits',
+                       'Tier2PayorID', 'Tier2Payor', 'Line_of_Business',
+                       'Tier4PayorID', 'Tier4Payor', 'QDX_InsPlan_Code', 'Line_of_Benefits',
                        'Test', 'OSM_Effective_Start_Date__c', 'OSM_Effective_End_Date__c', 'Billing_Modifier',
                        'OSM_Prior_Authorization__c', 'GHI_PayorSOMNTemplate__c',
                        'OSM_PA_Required__c', 'GHI_PhysicianAlertRequired__c',
@@ -39,8 +39,8 @@ for i in build:
     output_file = 'Wide_' + i + '_PTV.txt'
     PTV[PTV.Test == i][select_columns].to_csv(cfg.output_file_path+output_file, sep='|',index=False)
     
-    PTV_header = ['Name', 'LastModifiedDate','Tier2PayorId', 'Tier2Payor', 'Line_of_Business',
-                  'Tier4PayorId', 'Tier4Payor', 'QDX_InsPlan_Code', 'Line_of_Benefits',
+    PTV_header = ['Name', 'LastModifiedDate','Tier2PayorID', 'Tier2Payor', 'Line_of_Business',
+                  'Tier4PayorID', 'Tier4Payor', 'QDX_InsPlan_Code', 'Line_of_Benefits',
                   'Test', 'OSM_Effective_Start_Date__c', 'OSM_Effective_End_Date__c', 'Billing_Modifier']
     
     melt_PA = ['No CVP (no PA)', 'Pre-DOS', 'Post-DOS','Must obtain PA before releasing report',
