@@ -125,6 +125,14 @@ def OLI_detail(usage, folder, refresh=1, PayorHierarchy = 'At_OrderCapture'):
 
     #output['HCPProvidedPSA'].fillna('', inplace = True)
     
+    ################################################################################
+    # Reporting Group is stamped by SFDC: lookup the formula for ReportingGroup(D) #
+    # Per Cris M, Micromet is not Node Positive                                    #
+    # Update the label using the NodalStatus value                                 #
+    ################################################################################
+    a = output.ReportingGroup == 'Node Positive (Micromet)'
+    output.loc[a,'ReportingGroup'] = output.loc[a,'NodalStatus'] 
+    
     #########################################################################################
     #  Enrich Data                                                                          #
     #  - Reading the Financial Category code from GHI. GHI import and track the FC for      #

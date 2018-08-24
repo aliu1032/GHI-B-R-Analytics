@@ -1,10 +1,19 @@
 '''
 @author: aliu
 
-Create the ClaimTicket Report
-Purpose of this report is to combine the Quadax stdClaim and stdPayment file,
-and provide a full view of an OLI from initial billing ticket, and payment and adjustment history for the OLI
-Also include the GHI revenue recognized for the ticket, and the payor of the current ticket and HCP pulled from OrderLineDetail
+Create a Report at the OLI + Ticket + Accounting Period grain
+
+This report combines the data from the Quadax stdClaim and stdPayment file
+to provide a full view of an OLI from initial billing ticket, and payment and adjustment history for the OLI
+
+The report also includes the GHI revenue recognized from the payment towards the ticket, and the payor of the current ticket and HCP pulled from OrderLineDetail
+
+The outstanding amount is the ticket balance as of the date with the data is refreshed
+
+Data sources:
+Payment & Adjustment : from Quadax stdClaim and stdPayment files,
+Revenue: GHI StagingDB.Analytics.mvwRevenue
+OrderLineDetail: Test, Payer information : GHI StagingDB.Analytics.stgOrderLineDetail
 
 Sep 20: Combining QDX claim and payment lines to take a view of a claim cycle
 Sep 21: Getting GHI Revenue data for claim cycle
@@ -21,16 +30,8 @@ Dec 5: Create a view that show the OLI Journal using QDX data.
 
 Dec 11: Adding Test Criteria information to root cause revenue impacted adjustment
 Dec 15: Getting Billing Case Status from QDX Case file
-
-Data source:
-Payment & Adjustment : from Quadax stdClaim and stdPayment files,
-Revenue: GHI StagingDB.Analytics.mvwRevenue
-OrderLineDetail: Test, Payer information : GHI StagingDB.Analytics.stgOrderLineDetail
-
-
-## run the whole thing in Python to see if I get the Payer info into Revenue
-
 '''
+
 import pandas as pd
 from datetime import datetime
 
@@ -67,7 +68,7 @@ OLI_data = GData.OLI_detail('Claim2Rev', cfg.input_file_path, refresh)
 SFDC_Payors = GData.getPayors('Claim2Rev', cfg.input_file_path, refresh)
 
 ###############################################################################
-#   Derive the Current Ticket Number and Current QDX Case Number for an OLI   #
+#   Derive the Current Ticket Number and Current QDX Case Number for an OLI   #  
 #   Ideally, 1 OLI is 1 QDX Case Number, 1 OLI has 0..N Tickets               #
 #   However, in the system                                                    #
 #   OLIID : Ticket Number : Case Number relationship is N : N : N             #
@@ -90,14 +91,14 @@ OLI_data.rename(columns = {'CurrentTicketNumber':'BI_CurrentTicketNumber'}, inpl
 
 temp = Claim_bill.groupby(['OLIID','TicketNumber'])['CaseNumber']  # this return a SeriesGroupBy with CaseNumber
 d = temp.apply(lambda x : x.keys()[x.values.argmax()])
-temp1 = Claim_bill.loc[d][['OLIID','TicketNumber','CaseNumber','TXNDate']]
+temp1 = Claim_bill.loc[d][['OLIID','TicketNumber','CaseNumber','TXNDate']].copy()
 
 temp2 = temp1.groupby(['OLIID']).agg({'TXNDate':'idxmax'}).TXNDate
 Current_ticket = Claim_bill.loc[temp2][['OLIID','TicketNumber', 'CaseNumber',
                                         'BillingCaseStatusSummary1', 'BillingCaseStatusSummary2',
-                                        'BillingCaseStatusCode', 'BillingCaseStatus']]
+                                        'BillingCaseStatusCode', 'BillingCaseStatus','OLIDOS']].copy()
 
-Current_ticket.rename(columns = {'TicketNumber': 'CurrentQDXTicketNumber'}, inplace=True)
+Current_ticket.rename(columns = {'TicketNumber': 'CurrentQDXTicketNumber', 'OLIDOS':'QDX_DOS'}, inplace=True)
 TickCnt = (pd.pivot_table(Claim_bill, index=['OLIID'], values = 'TicketNumber',\
                           aggfunc = lambda TicketNumber: len(TicketNumber.unique()))).rename(columns = {'TicketNumber': 'QDXTickCnt'})
 Current_ticket = pd.merge(Current_ticket, TickCnt, how='left', left_on='OLIID', right_index=True)
@@ -117,13 +118,15 @@ a = Current_reference.CurrentQDXCaseNumber.isnull()
 Current_reference.loc[a,'CurrentQDXCaseNumber'] = Current_reference.loc[a,'maxCaseNum']
 Current_reference = Current_reference[['OLIID','CurrentQDXTicketNumber','QDXTickCnt','CurrentQDXCaseNumber','QDXCaseCnt',
                                        'BillingCaseStatusSummary1', 'BillingCaseStatusSummary2',
-                                       'BillingCaseStatusCode', 'BillingCaseStatus']]
+                                       'BillingCaseStatusCode', 'BillingCaseStatus','QDX_DOS']]
 
 OLI_data = pd.merge(OLI_data, Current_reference, how='left', on='OLIID')
 
-# Update TestDeliveredDate using DateofService if it is not available
-## does it matter whether the TicketNumber is null or not??
-# need to update into somewhere for OLI_TXN - it should be include as it is reading the Test Delivered Date from OLI_data after this change.
+# If DateOrService is null, fill it with the Quadax DOS
+# If TestDeliveredDate is null, fill it with DateofService
+a = (OLI_data.DateOfService.isnull())
+OLI_data.loc[a, 'DateOfService'] = OLI_data.loc[a,'QDX_DOS']
+
 a = (OLI_data.TestDeliveredDate.isnull()) & ~(OLI_data.CurrentQDXTicketNumber.isnull())
 OLI_data.loc[a, 'TestDeliveredDate'] = OLI_data.loc[a,'DateOfService']
 
@@ -178,7 +181,7 @@ Revenue_data = Revenue_data[(Revenue_data.IsRevenueReconciliationAdjustment == '
 # The Reconciliation Adjustment are called out in 2016, the reconciliation adjustment are not flagged starting in 2017
 # Impact: the adjustment could inflate the Payer OLI revenue numbers.
 # but the reconciliation should be in the Revenue dash board to match the Finance report.
-# Net net requirement: Revenue Reconciliation Adjustment should be include to Revenue dashbaord, and filter out for OLI Claim2Rev
+# Net net requirement: Revenue Reconciliation Adjustment should be include to Revenue dashboard, and filter out for OLI Claim2Rev
 
 ########################################################################################
 #   Flip the sign of Payment and Adjustment (exclude CIE)                              #
@@ -217,16 +220,14 @@ Ticket_Payor_Test = Revenue_data.loc[pull_rows][['OLIID','TicketNumber',
                                            'Currency','TestDeliveredDate','Test',
 #                                           'Tier1Payor', 'Tier1PayorID', 'Tier1PayorName',
 #                                           'Tier2Payor', 'Tier2PayorID','Tier2PayorName',
-                                           'Tier4Payor', 'Tier4PayorName',
-                                           'Tier4PayorID', 
+                                           'Tier4Payor', 'Tier4PayorName','Tier4PayorID', 
                                            'QDXInsPlanCode','QDXInsFC', 'LineOfBenefit', 'FinancialCategory',
                                            'ClaimPayorBusinessUnit', 'ClaimPayorInternationalArea', 'ClaimPayorDivision', 'ClaimPayorCountry']]
 
 OLI_Payor = OLI_data[['OLIID','CurrentQDXTicketNumber',#'CurrentQDXCaseNumber',
 #                     'Tier1Payor','Tier1PayorID','Tier1PayorName',
 #                     'Tier2Payor','Tier2PayorID','Tier2PayorName',
-                      'Tier4Payor','Tier4PayorName',
-                      'Tier4PayorID',
+                      'Tier4Payor','Tier4PayorName','Tier4PayorID',
                       'QDXInsPlanCode', 'QDXInsFC','LineOfBenefit', 'FinancialCategory'                             
                     ]]
 
@@ -234,7 +235,7 @@ OLI_Payor = OLI_data[['OLIID','CurrentQDXTicketNumber',#'CurrentQDXCaseNumber',
 ## GHI has nothing of this ticket in the Revenue nor the OLI table
 ## In this case, have to get the Currency, Test and Payer information from the QDX file
 ## [Claim_bill.OLIID=='NONE']
-## OR000626537 (OLIID: OL000642948, Ticket 612550) no prebilling, billing case in SFDC.
+## OR000626537 (OLIID: OL000642948, Ticket 612550) no pre-billing, billing case in SFDC.
 ## There is test delivered date, result. And QDX reports received a payment for it
 Claim_Payor_Test = Claim_bill[['OLIID','TicketNumber',
                                'TXNCurrency','OLIDOS','Test',
@@ -242,7 +243,7 @@ Claim_Payor_Test = Claim_bill[['OLIID','TicketNumber',
                                'TicketInsPlan_GHICode',
                                'TicketInsPlan_QDXCode'#,'TicketInsComp_QDXCode','TicketInsPlanName'
                                ]].copy()
-                               
+# rename the columns                               
 Claim_Payor_Test.columns = ['OLIID', 'TicketNumber',
                              'BilledCurrency','TestDeliveredDate','Test',
 #                             'Tier2PayorID',
@@ -263,8 +264,7 @@ OLI_HCPHCO = OLI_data[['OLIID'
                        , 'IsOrderingHCPCTR', 'IsOrderingHCPPECOS', 'Specialty'
                        , 'OrderingHCO', 'OrderingHCOCity', 'OrderingHCOState', 'OrderingHCOCountry']]
 
-OLI_patientcriteria = OLI_data[['OLIID'
-                                , 'NodalStatus','EstimatedNCCNRisk','SubmittedNCCNRisk','ReportingGroup','RiskGroup']]
+OLI_patientcriteria = OLI_data[['OLIID', 'NodalStatus','EstimatedNCCNRisk','SubmittedNCCNRisk','ReportingGroup','RiskGroup']]
 
 OLI_status = OLI_data[['OLIID',
                        'OrderStatus','TestDelivered',
@@ -294,7 +294,7 @@ aggregations = {
 Summarized_Revenue = Revenue_data.groupby(['OLIID','TicketNumber','AccountingPeriod']).agg(aggregations)
 Summarized_Revenue.columns = ['Revenue','AccrualRevenue','CashRevenue',
                               'USDRevenue', 'USDAccrualRevenue', 'USDCashRevenue']
-                              #'ClaimPeriodDate'
+# 'ClaimPeriodDate'
 Summarized_Revenue = Summarized_Revenue.reset_index()
 
 ########################################################################################
@@ -317,7 +317,7 @@ Summarized_Claim.rename(columns = {'TXNAmount':'Charge'}, inplace=True)
 ########################################################################################
 print('ClaimTicket Report :: summarize charge, payment & adjustment numbers to ticket :: start :: ', datetime.now().strftime('%Y-%m-%d %H:%M:%S') )
 
-''' Calculate the Payer Paid Amount for an OLI + Ticket + AccountingPeriod from QDX Payment Data '''  
+### Calculate the Payer Paid Amount for an OLI + Ticket + AccountingPeriod from QDX Payment Data   
 aggregations = {
     'TXNAmount' :'sum',
     }
@@ -325,14 +325,14 @@ aggregations = {
 Summarized_PayorPaid = Claim_pymnt[(Claim_pymnt.TXNType=='RI')].groupby(['OLIID','TicketNumber','TXNAcctPeriod']).agg(aggregations)
 Summarized_PayorPaid.columns = ['PayorPaid']
 
-''' Calculate the Patient Paid Amount '''  
+### Calculate the Patient Paid Amount   
 aggregations = {
     'TXNAmount' : 'sum'
     }
 Summarized_PtPaid = Claim_pymnt[(Claim_pymnt.TXNType=='RP')].groupby(['OLIID','TicketNumber','TXNAcctPeriod']).agg(aggregations)
 Summarized_PtPaid.columns = ['PatientPaid']
 
-''' Calculate the Adjustment per OLI + Ticket + Accounting Period + AdjustmentGroup  '''  
+### Calculate the Adjustment per OLI + Ticket + Accounting Period + AdjustmentGroup 
 temp_adjustment = Claim_pymnt[Claim_pymnt.TXNType.isin(['AC','AD'])].copy()
 Summarized_Adjust = temp_adjustment.pivot_table(index = ['OLIID','TicketNumber','TXNAcctPeriod'], columns = 'BR_Category', values='TXNAmount', aggfunc='sum')
 
@@ -353,17 +353,17 @@ AcctPeriod_Rpt.rename(columns = {'TXNAcctPeriod' : 'AccountingPeriod'}, inplace=
 AcctPeriod_Rpt.AccountingPeriod = AcctPeriod_Rpt.AccountingPeriod.str.upper()  ## FEB 2016 vs Feb 2016
 AcctPeriod_Rpt.fillna(0.0, inplace=True)  # to avoid calculation with NaN resulting NaN
 
-''' Calculate the Payment, Billed, Adjustment per OLI + TicketNumber + Accounting Period '''
+### Calculate the Payment, Billed, Adjustment per OLI + TicketNumber + Accounting Period 
 AcctPeriod_Rpt['Payment'] = AcctPeriod_Rpt[['PayorPaid','PatientPaid']].sum(axis=1)+AcctPeriod_Rpt['Refund & Refund Reversal']
 AcctPeriod_Rpt['Billed'] = AcctPeriod_Rpt[['Charge','Charged in Error']].sum(axis=1)
 
-''' Total Adjustment = all AC & AD, excluding Charged in Error and Refund '''
+### Total Adjustment = all AC & AD, excluding Charged in Error and Refund
 temp_adjust_cat = list(Adj_code[category].unique())
 temp_adjust_cat.remove('Charged in Error')
 temp_adjust_cat.remove('Refund & Refund Reversal')
 AcctPeriod_Rpt['Adjustment'] = AcctPeriod_Rpt[temp_adjust_cat].sum(axis=1)
 
-''' Merge the Revenue, Bill, Payment, Adjustment '''
+### Merge the Revenue, Bill, Payment, Adjustment 
 AcctPeriod_Rpt = pd.merge(Summarized_Revenue, AcctPeriod_Rpt, how='outer', on=['OLIID','TicketNumber','AccountingPeriod'])
 AcctPeriod_Rpt.fillna(0.0, inplace=True)
 
@@ -381,8 +381,6 @@ Summarized_Outstanding = Claim_bill.groupby(['OLIID','TicketNumber']).agg(aggreg
 Summarized_Outstanding.rename(columns = {'ClmTickBal':'Outstanding'}, inplace=True)
 Summarized_Outstanding = Summarized_Outstanding[Summarized_Outstanding.Outstanding != 0]
 Summarized_Outstanding.reset_index(inplace=True)
-#a = Summarized_Outstanding[Summarized_Outstanding.TicketNumber == 2].index.get_level_values('OLIID').unique()
-#b = Claim_bill[(Claim_bill.OLIID.isin(a)) & (Claim_bill.TXNCurrency == 'USD')]['OLIID']
 
 # Set AccountingPeriod to the max() for outstanding rows.
 Rpt_AcctPeriod = AcctPeriod_Rpt['AccountingPeriodDate'].max().strftime("%b %Y")
@@ -390,17 +388,18 @@ Rpt_AcctPeriodDate = AcctPeriod_Rpt[AcctPeriod_Rpt['AccountingPeriodDate']==Rpt_
 Summarized_Outstanding['AccountingPeriod'] = Rpt_AcctPeriod.upper()
 Summarized_Outstanding['AccountingPeriodDate'] = Rpt_AcctPeriodDate
 
-''' Append the Outstanding '''
+### Append the Outstanding
 AcctPeriod_Rpt = pd.merge(AcctPeriod_Rpt, Summarized_Outstanding, how='outer', on=['OLIID','TicketNumber','AccountingPeriod','AccountingPeriodDate'])
 AcctPeriod_Rpt.fillna(0.0, inplace=True)  
 
 #OL001080997
 
-'''adding Payor of the ticket and OLI info '''
+### adding Payor of the ticket and OLI info 
 AcctPeriod_Rpt = pd.merge(AcctPeriod_Rpt, Ticket_Payor_Test, how='left', on = ['OLIID','TicketNumber'])
 AcctPeriod_Rpt = pd.merge(AcctPeriod_Rpt, OLI_Test_Info, how = 'left', on = ['OLIID'])
 AcctPeriod_Rpt = pd.merge(AcctPeriod_Rpt, OLI_Territory, how = 'left', on = ['OLIID'])
 AcctPeriod_Rpt = pd.merge(AcctPeriod_Rpt, TickCnt, how='left', left_on=['OLIID'], right_index=True)
+AcctPeriod_Rpt = pd.merge(AcctPeriod_Rpt, OLI_patientcriteria, how='left', on = ['OLIID'])
 
 # Merge the Test & Test Delivered Date value from Revenue and OLI. Needs to combine since the data are not always available in the files
 # *_x is from Revenue Ticket (Ticket_Payor_test)
@@ -426,7 +425,7 @@ for a in list(['BilledCurrency','Test','TestDeliveredDate','Tier4PayorID','QDXIn
     AcctPeriod_Rpt.loc[AcctPeriod_Rpt[a].isnull(),a] = AcctPeriod_Rpt.loc[AcctPeriod_Rpt[a].isnull(), backup]
     AcctPeriod_Rpt.drop([first, backup], axis=1, inplace=True)
 
-# Merge the current Payor Hierarchy from SFDC for GNAM report 
+# Merge the current Payer Hierarchy from SFDC for GNAM report 
 AcctPeriod_Rpt = pd.merge(AcctPeriod_Rpt, SFDC_Payors, how='left', on='Tier4PayorID')
 
 # Rearranging and sort data for output 
@@ -449,7 +448,9 @@ AcctPeriod_Rpt = AcctPeriod_Rpt[[
                  , 'ClaimPayorInternationalArea', 'ClaimPayorDivision'
                  , 'ClaimPayorCountry'
                  , 'Test', 'BilledCurrency', 'BusinessUnit'
-                 , 'InternationalArea', 'Division', 'Country', 
+                 , 'InternationalArea', 'Division', 'Country'
+                 , 'ReportingGroup'
+                 #, 'NodalStatus','EstimatedNCCNRisk','RiskGroup'
                 ]].sort_values(by=['OLIID','TicketNumber','AccountingPeriodDate'])
                 
 #############################################################################################
@@ -460,73 +461,45 @@ AcctPeriod_Rpt = AcctPeriod_Rpt[[
 # keep the adjustment detail for the ability to drill down different transaction categories #
 #                                                                                           #
 #############################################################################################
-'''Extract the Revenue transactions '''
-'''Including the Total for comparison'''
+### Extract the Revenue transactions
+### remove the USD since the comparison applicable to TXN currency, remove Total and use the TXNCategory to do the total revenue 
+                                               
 print('ClaimTicket Report :: create a journal of revenue, charge, payment, adjustment for rev vs receipt analysis :: start :: ', datetime.now().strftime('%Y-%m-%d %H:%M:%S') )
 
 temp_rev = pd.pivot_table(Revenue_data, index = ['OLIID','TicketNumber', 'AccountingPeriod'],
                           values = ['TotalAccrualRevenue', 'TotalCashRevenue'])
 #'TotalRevenue',
-#                                    'TotalUSDRevenue','TotalUSDAccrualRevenue', 'TotalUSDCashRevenue'
-# remove the USD since the comparison applicable to TXN currency                                                 
-temp_rev.rename(columns = {'TotalRevenue':'Revenue'
-                           , 'TotalAccrualRevenue':'AccrualRevenue', 'TotalCashRevenue':'CashRevenue'
-                           , 'TotalUSDRevenue':'USDRevenue'
-                           ,'TotalUSDAccrualRevenue':'USDAccrualRevenue', 'TotalUSDCashRevenue':'USDCashRevenue'}, inplace=True)
+#'TotalUSDRevenue','TotalUSDAccrualRevenue', 'TotalUSDCashRevenue'
+temp_rev.rename(columns = {'TotalAccrualRevenue':'AccrualRevenue', 'TotalCashRevenue':'CashRevenue'}, inplace=True)
+#                           ,'TotalRevenue':'Revenue'
+#                           ,'TotalUSDRevenue':'USDRevenue'
+#                           ,'TotalUSDAccrualRevenue':'USDAccrualRevenue', 'TotalUSDCashRevenue':'USDCashRevenue'
 temp_rev = temp_rev.stack().reset_index()
 temp_rev.columns = ['OLIID','TicketNumber','TXNAcctPeriod', 'TXNType','TXNAmount']
 
 # drop the rows with zeros
 temp_rev = temp_rev[~(temp_rev.TXNAmount == 0.0)].sort_values(by=['OLIID'])
-temp_rev.loc[temp_rev.TXNType=='Revenue','TXNLineNumber'] = int(-4)
-temp_rev.loc[temp_rev.TXNType!='Revenue','TXNLineNumber'] = int(-5)
+temp_rev['TXNCategory'] = 'Revenue'
+temp_rev.loc[temp_rev.TXNType=='AccrualRevenue','TXNLineNumber'] = int(-3)
+temp_rev.loc[temp_rev.TXNType=='CashRevenue','TXNLineNumber'] = int(-4)
 
-#TXNType_dict = {'Revenue':'Total','AccrualRevenue':'Subtotal', 'CashRevenue':'Subtotal'}
-#for a in list(TXNType_dict.keys()):
-####    temp_rev.loc[(temp_rev.TXNType==a),'TXNType'] = TXNType_dict.get(a)
-#    temp_rev.loc[(temp_rev.TXNType==a),'TXN Subcategory'] = TXNType_dict.get(a)
-#    temp_rev.loc[(temp_rev.TXNType==a),'TXN Category'] = 'Revenue'
-temp_rev['TXN Category'] = 'Revenue'
-
-
-''' pull the bill amount, total payment from ClaimTicket2Rev, which each row is OLI + Ticket + Accounting Period
-    The bill amount and payment amount per each OLI + Ticket + Accounting Period
-'''
-## this include payment from Ticket without OLI reference
-##remove the total bill, total payment, total outstanding, have Tableau calculate the subtotal
-'''
-temp_bp = pd.pivot_table(AcctPeriod_Rpt, index=['OLIID','TicketNumber','AccountingPeriod','BilledCurrency'],
-                         values = ['Billed','Payment'])
-temp_bp = temp_bp.stack().reset_index()
-temp_bp.columns = ['OLIID','TicketNumber','TXNAcctPeriod','TXNCurrency', 'TXNType','TXNAmount']
-temp_bp.loc[(temp_bp.TXNType=='Billed'),'TXN Category'] = 'Billing'
-#temp_bp.loc[(temp_bp.TXNType=='Total Billed'),'TXN Subcategory'] = 'Total' ###
-temp_bp.loc[(temp_bp.TXNType=='Payment'),'TXN Category'] = 'Payment'
-#temp_bp.loc[(temp_bp.TXNType=='Total Payment'),'TXN Subcategory'] = 'Total' ##3
-temp_bp.loc[(temp_bp.TXNType=='Total Billed'),'TXNLineNumber'] = int(-1)
-temp_bp.loc[(temp_bp.TXNType=='Total Payment'),'TXNLineNumber'] = int(-2)
-'''
-
-''' Extract the Claim Amount '''
-## Extract the claim amount from stdClaim. This is the charge amount issued with the Ticket at the TXNAcctPeriod
+### Extract the Claim Amount from stdClaim. This is the charge amount issued with the Ticket at the TXNAcctPeriod 
 temp_claim = Claim_bill[['OLIID', 'TicketNumber','TXNAcctPeriod'
                          , 'TXNCurrency','TXNAmount', 'TXNLineNumber','TXNType']].copy()
-temp_claim['TXN Category'] = 'Billing'
-#temp_claim['TXN Subcategory'] = 'Subtotal'
+temp_claim['TXNCategory'] = 'Billing'
 temp_claim['TXNType'] = 'Charge'
+temp_claim['TXNLineNumber'] = int(-1)
 
-## Extract the outstanding amount stdClaim. This is the outstanding amount of the ticket at the date when the file is generated
+### Extract the outstanding amount stdClaim. This is the outstanding amount of the ticket at the date when the file is generated
 temp_outstanding = Claim_bill[['OLIID', 'TicketNumber'
                         ,'TXNCurrency', 'ClmTickBal', 'TXNLineNumber']].copy()
 temp_outstanding.rename(columns = {'ClmTickBal':'TXNAmount'}, inplace=True)
 temp_outstanding['TXNAcctPeriod'] = Rpt_AcctPeriod
+temp_outstanding['TXNCategory'] = 'Outstanding'
 temp_outstanding['TXNType'] ='Outstanding'
-temp_outstanding['TXN Category'] = 'Outstanding'
-#temp_outstanding['TXN Subcategory'] = 'Subtotal'
-temp_outstanding['TXNLineNumber'] = int(-3)
+temp_outstanding['TXNLineNumber'] = int(-2)
 
-''' Extract the Payment, Adjustment (includes Refund and Charge Error) '''
-# Extract Payment, Adjustment, Refund, Charge Error from stdPayment
+### Extract the Payor and Patient Payment, Adjustment (includes Refund and Charge Error) from stdPayment
 temp_pymnt = Claim_pymnt[['OLIID', 'TicketNumber','TXNAcctPeriod'
                           , 'TXNCurrency'
                           , 'TXNAmount', 'TXNType','TXNLineNumber'
@@ -541,29 +514,23 @@ temp_pymnt = Claim_pymnt[['OLIID', 'TicketNumber','TXNAcctPeriod'
                           ]].copy()
 temp_pymnt.rename(columns= {'Description' : 'QDXAdjustmentDesc'}, inplace=True)
 
-temp_pymnt.loc[temp_pymnt.TXNType == 'RI','TXN Category'] = 'Payment'
-#temp_pymnt.loc[temp_pymnt.TXNType == 'RI','TXN Subcategory'] = 'Subtotal'
+temp_pymnt.loc[temp_pymnt.TXNType == 'RI','TXNCategory'] = 'Payment'
 temp_pymnt.loc[temp_pymnt.TXNType == 'RI','TXNType'] = 'PayorPaid'
 
-temp_pymnt.loc[temp_pymnt.TXNType == 'RP','TXN Category'] = 'Payment'
-#temp_pymnt.loc[temp_pymnt.TXNType == 'RP','TXN Subcategory'] = 'Subtotal'
+temp_pymnt.loc[temp_pymnt.TXNType == 'RP','TXNCategory'] = 'Payment'
 temp_pymnt.loc[temp_pymnt.TXNType == 'RP','TXNType'] = 'PatientPaid'
 
 a = temp_pymnt.TXNType.isin(['AC','AD'])
-temp_pymnt.loc[a,'TXN Category'] = 'Adjustment'
+temp_pymnt.loc[a,'TXNCategory'] = 'Adjustment'
 temp_pymnt['temp_str'] = temp_pymnt['GHIAdjustmentCode'] + ":" + temp_pymnt['CategoryDesc']
 temp_pymnt.loc[a,'TXNType'] = temp_pymnt.loc[a, 'temp_str']
 
-## move the charge in error to billing category
-a = temp_pymnt.QDXAdjustmentCode.isin(['C6','CCD'])
-temp_pymnt.loc[a,'TXN Category'] = 'Billing'
-#temp_pymnt.loc[a,'TXN Subcategory'] = 'Subtotal'
+a = temp_pymnt.QDXAdjustmentCode.isin(['C6','CCD']) # Charge in Error
+temp_pymnt.loc[a,'TXNCategory'] = 'Billing'
 temp_pymnt.loc[a,'TXNType'] = temp_pymnt['GHIAdjustmentCode'] + ":" + temp_pymnt['CategoryDesc']
 
-## move the refund to payment category
-a = temp_pymnt.QDXAdjustmentCode.isin(['D4','CF'])
-temp_pymnt.loc[a,'TXN Category'] = 'Payment'
-#temp_pymnt.loc[a,'TXN Subcategory'] = 'Subtotal'
+a = temp_pymnt.QDXAdjustmentCode.isin(['D4','CF']) # Refund
+temp_pymnt.loc[a,'TXNCategory'] = 'Payment'
 temp_pymnt.loc[a,'TXNType'] = temp_pymnt['GHIAdjustmentCode'] + ":" + temp_pymnt['CategoryDesc']
 
 #################################################
@@ -576,15 +543,9 @@ temp_rev = pd.merge(temp_rev, TickCnt, how='left', left_on=['OLIID'], right_inde
 temp_rev.rename(columns = {'Currency' : 'TXNCurrency'}, inplace=True)
 temp_rev = pd.merge(temp_rev, OLI_Test_Info, how='left',on='OLIID')
 
-# if the OLI/ticket not reach the Revenue stage, there is not entry in the Revenue Table. In this case, patch with current payor information
-# why Revenue Table have empty payor
-#temp_rev = pd.merge(temp_rev, OLI_Payor)
-#temp_rev = pd.merge(temp_rev, OLI_info_2, how='left',on='OLIID')
-
 # need to keep the test & date from Revenue to workaround the issue that OLI information is not available
 # X is from Ticket_Payor from Revenue Table
 # Y is from OLI - OLI_info_2
-##Jun 5: Comment: If OLI_Test_info is missing Test Value, why would it not impact the adjustment, payment, bill and outstanding rows?
 temp_rev['Test'] = temp_rev['Test_x']
 temp_rev.loc[temp_rev.Test.isnull(), 'Test'] = temp_rev.loc[temp_rev.Test.isnull(), 'Test_y']
 
@@ -594,7 +555,7 @@ temp_rev.loc[temp_rev.TestDeliveredDate.isnull(), 'TestDeliveredDate'] = temp_re
 temp_rev.drop(['Test_x','Test_y','TestDeliveredDate_x', 'TestDeliveredDate_y'], axis=1, inplace=True)
    
 ########################################################################################
-# add OLI Payor to claim, pymnt and outstanding                                        #
+# add OLI Payor to claim, payment and outstanding                                      #
 # there are 2 versions                                                                 #
 # Version 1: merge the current ticket payor information to claim, payment, adjustment  #
 #            This will match the Claim2Rev report that rolls number up to OLI          #
@@ -607,7 +568,7 @@ Ticket_TXN_Detail = pd.concat([temp_claim, temp_pymnt, temp_outstanding], sort=F
                     sort_values(by = ['OLIID', 'TXNLineNumber','TXNAcctPeriod'])
 
 ########### Version 1 ################
-#Version 1: Adding the Current Ticket Payor to the Claim, Payment, Adjustment - thus the Claim, Payment, Adjustment matches the Claim2Rev
+#Version 1: Adding the Current Payor from OLI to the Claim, Payment, Adjustment - thus the Claim, Payment, Adjustment matches the Claim2Rev
 ## consider to use OLI_Payor
 #Ticket_TXN_Detail_v1 = pd.merge(Ticket_TXN_Detail, OLI_data, how='left', left_on='OLIID', right_on='OLIID')
 Ticket_TXN_Detail_v1 = pd.merge(Ticket_TXN_Detail, OLI_Payor, how='left', left_on='OLIID', right_on='OLIID')
@@ -623,15 +584,14 @@ Ticket_TXN_Detail_v1 = Ticket_TXN_Detail_v1[['OLIID', 'TicketNumber','Test'
                                        , 'TestDeliveredDate'
                                        # ClaimPeriod, DateOfService ## check these                                       
                                        , 'TXNLineNumber', 'TXNAcctPeriod','TXNAcctPeriodDate', 'TXNCurrency', 'TXNAmount'
-                                       , 'TXN Category', 'BR_Category','TXNType'
+                                       , 'TXNCategory', 'BR_Category','TXNType'
 
                                        , 'QDXAdjustmentCode', 'QDXAdjustmentDesc', 'GHIAdjustmentCode'
-                                       # 'CategoryDesc',                                         
 #                                       , 'Tier1Payor', 'Tier1PayorID', 'Tier1PayorName'
 #                                       , 'Tier2Payor', 'Tier2PayorID', 'Tier2PayorName'
                                        , 'Tier4Payor', 'Tier4PayorID', 'Tier4PayorName'                                       
                                        , 'QDXInsPlanCode', 'QDXInsFC', 'LineOfBenefit', 'FinancialCategory'
-                                       , 'ClaimPayorBusinessUnit', 'ClaimPayorCountry', 'ClaimPayorDivision','ClaimPayorInternationalArea'
+#                                       , 'ClaimPayorBusinessUnit', 'ClaimPayorCountry', 'ClaimPayorDivision','ClaimPayorInternationalArea'
 #                                       , 'Territory', 'BusinessUnit', 'InternationalArea', 'Division', 'Country'
                                        , 'CurrentQDXTicketNumber'
 #                                       , 'BillingCaseStatusSummary2', 'BillingCaseStatusCode', 'BillingCaseStatus'
@@ -643,7 +603,7 @@ Ticket_TXN_Detail_v1 = Ticket_TXN_Detail_v1[['OLIID', 'TicketNumber','Test'
                                        ]].sort_values(by = ['OLIID','TicketNumber','TXNLineNumber','TXNType'])
                                        
 ########### Version 2 ################
-# Version 2: Adding the Ticket Payor to the Claim, Payment, Adjustment - to match the Claim, Payment, Adjustment number to ClaimTicket
+# Version 2: Adding the Ticket Payor from Revenue file to the Claim, Payment, Adjustment - to match the Claim, Payment, Adjustment number to ClaimTicket
 
 Ticket_TXN_Detail_v2 = pd.merge(Ticket_TXN_Detail, Ticket_Payor_Test, how='left', on=['OLIID', 'TicketNumber'])
 Ticket_TXN_Detail_v2 = pd.merge(Ticket_TXN_Detail_v2, TickCnt, how='left', left_on=['OLIID'], right_index=True)
@@ -664,6 +624,7 @@ Ticket_TXN_Detail_v2 = pd.concat([Ticket_TXN_Detail_v2, temp_rev], ignore_index=
 Ticket_TXN_Detail_v2 = Ticket_TXN_Detail_v2[~(Ticket_TXN_Detail_v2.TXNAmount == 0.0)]
 Ticket_TXN_Detail_v2['TXNAcctPeriodDate'] = pd.to_datetime(Ticket_TXN_Detail_v2.TXNAcctPeriod, format="%b %Y")
 
+### Pulling the current SFDC Payor Hierarchy for GNAM reports
 Ticket_TXN_Detail_v2 = pd.merge(Ticket_TXN_Detail_v2, SFDC_Payors, how='left', on='Tier4PayorID')
 
 Ticket_TXN_Detail_v2 = pd.merge(Ticket_TXN_Detail_v2, OLI_Territory, how='left',on='OLIID')
@@ -694,15 +655,13 @@ Ticket_TXN_Detail_v2 = Ticket_TXN_Detail_v2[['OLIID', 'Test', 'TicketNumber', 'Q
                                        , 'TestDeliveredDate','TXNAcctPeriod','TXNAcctPeriodDate'
                                        # ClaimPeriod, DateOfService ## check these                                       
                                        , 'TXNLineNumber', 'TXNCurrency', 'TXNAmount'
-                                       , 'TXN Category','BR_Category', 'TXNType'
- #                                      , 'TXNTypeDesc'
+                                       , 'TXNCategory','BR_Category', 'TXNType'
                                        , 'QDXAdjustmentCode', 'QDXAdjustmentDesc', 'GHIAdjustmentCode'
-                                       # 'CategoryDesc', 
                                        , 'Tier1Payor', 'Tier1PayorID', 'Tier1PayorName'
                                        , 'Tier2Payor', 'Tier2PayorID', 'Tier2PayorName'
                                        , 'Tier4Payor', 'Tier4PayorID', 'Tier4PayorName'
                                        , 'QDXInsPlanCode', 'QDXInsFC','LineOfBenefit', 'FinancialCategory'
-                                       , 'ClaimPayorBusinessUnit', 'ClaimPayorCountry', 'ClaimPayorDivision','ClaimPayorInternationalArea'
+#                                       , 'ClaimPayorBusinessUnit', 'ClaimPayorCountry', 'ClaimPayorDivision','ClaimPayorInternationalArea'
                                        , 'Territory'
                                        , 'BusinessUnit', 'InternationalArea', 'Division', 'Country'
 #                                       , 'RevenueStatus'
@@ -730,13 +689,26 @@ Ticket_TXN_Detail_v2 = Ticket_TXN_Detail_v2[['OLIID', 'Test', 'TicketNumber', 'Q
                                        , 'priorAuthResult_Category'
                                        ]].sort_values(by = ['OLIID','TicketNumber','TXNLineNumber'],ascending=[True, True, False])
                                        
+
+#########################################
+#   Add the Payor View Set assignment   #
+#########################################
+prep_file_name = "Payor-ViewSetAssignment.xlsx"
+
+Payor_view = pd.read_excel(cfg.prep_file_path+prep_file_name, sheet_name = "SetAssignment", usecols="B:C", encoding='utf-8-sig')
+
+for i in Payor_view.Set.unique() :
+    code = Payor_view[Payor_view.Set==i].Tier2PayorID
+    AcctPeriod_Rpt.loc[AcctPeriod_Rpt.Tier2PayorID.isin(list(code)),i] = '1'
+    
+    code = Payor_view[Payor_view.Set==i].Tier2PayorID
+    Ticket_TXN_Detail_v2.loc[Ticket_TXN_Detail_v2.Tier2PayorID.isin(list(code)),i] = '1'   
+
 ###############################################
 #     Write the columns into a excel file     #
 ###############################################
-print('to csv:: start :: ', datetime.now().strftime('%Y-%m-%d %H:%M:%S') )
 
-print('writing ClaimTicket_AccountingPeriod_Rpt', datetime.now().strftime('%Y-%m-%d %H:%M:%S') )
-# remove $0 for better display in Tableau
+# remove $0 for a clean display in Tableau
 update = ['Revenue', 'AccrualRevenue', 'CashRevenue'
           , 'USDRevenue', 'USDAccrualRevenue', 'USDCashRevenue'
           , 'Billed', 'Charge', 'Charged in Error'
@@ -746,18 +718,28 @@ update = ['Revenue', 'AccrualRevenue', 'CashRevenue'
 ]
 for i in update:
     AcctPeriod_Rpt.loc[AcctPeriod_Rpt[i]==0,i] = ''
+
+print('writing ClaimTicket_AccountingPeriod_Rpt', datetime.now().strftime('%Y-%m-%d %H:%M:%S') )
 output_file = 'ClaimTicket_AccountingPeriod_Rpt.txt'
 AcctPeriod_Rpt.to_csv(cfg.output_file_path+output_file, sep='|',index=False)
 
 
 print('Ticket TXN ', datetime.now().strftime('%Y-%m-%d %H:%M:%S') )
 output_file = 'Ticket_TXN_Detail.txt'
-#a = Ticket_TXN_Detail_v2['TXN Subcategory'] == 'Total'  ##remove the total bill, total payment, total outstanding, have Tableau calculate the subtotal
 Ticket_TXN_Detail_v2.to_csv(cfg.output_file_path+output_file, sep='|',index=False)
+
+print('Domestic IBC Claims TXN ', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+output_file = 'Ticket_TXN_Detail_Domestic_IBC.txt'
+a = (Ticket_TXN_Detail_v2.Test=='IBC') & (Ticket_TXN_Detail_v2.BusinessUnit== 'Domestic')
+b = (Ticket_TXN_Detail_v2.OLIID.str.match('^OL'))
+c = (Ticket_TXN_Detail_v2.TestDeliveredDate >='2018-01-01') & (Ticket_TXN_Detail_v2.TestDeliveredDate <='2018-12-31')
+Ticket_TXN_Detail_v2[a & b & c].to_csv(cfg.output_file_path+output_file, sep='|',index=False)
 
 
 print('to csv :: done :: ', datetime.now().strftime('%Y-%m-%d %H:%M:%S') )
 print("DONE DONE DONE, Hurray")
+
+
 
 '''
 a = Ticket_TXN_Detail_v2[(Ticket_TXN_Detail_v2.TestDeliveredDate >='2017-06-01') & (Ticket_TXN_Detail_v2.TestDeliveredDate <='2017-09-30')]
@@ -826,8 +808,27 @@ Revenue_data[Revenue_data.OLIID==size[size>1].index[10][0]][['OLIID','TicketNumb
 
 
 
-#Ticket_TXN_Detail[(Ticket_TXN_Detail.TXN Category=='Revenue') & (Ticket_TXN_Detail.BusinessUnit.isnull())]['OLIID'].unique()
+#Ticket_TXN_Detail[(Ticket_TXN_Detail.TXNCategory=='Revenue') & (Ticket_TXN_Detail.BusinessUnit.isnull())]['OLIID'].unique()
 #array(['OL0000UKVAT', 'OL000730539', 'OL000849287', 'R11XOJ6',
 #       'TSReclassJE', 'TSRevReduct', 'Unknown()'], dtype=object)
-#Ticket_TXN_Detail[Ticket_TXN_Detail.OLIID=='TSReclassJE'][['TXN Category','TXNAmount','BusinessUnit','ClaimPayorBusinessUnit','Tier1Payor','TXNAcctPeriod']]
+#Ticket_TXN_Detail[Ticket_TXN_Detail.OLIID=='TSReclassJE'][['TXNCategory','TXNAmount','BusinessUnit','ClaimPayorBusinessUnit','Tier1Payor','TXNAcctPeriod']]
+'''
+
+
+''' pull the bill amount, total payment from ClaimTicket2Rev, which each row is OLI + Ticket + Accounting Period
+    The bill amount and payment amount per each OLI + Ticket + Accounting Period
+'''
+## this include payment from Ticket without OLI reference
+##remove the total bill, total payment, total outstanding, have Tableau calculate the total bill and payment per TXNCategory
+'''
+temp_bp = pd.pivot_table(AcctPeriod_Rpt, index=['OLIID','TicketNumber','AccountingPeriod','BilledCurrency'],
+                         values = ['Billed','Payment'])
+temp_bp = temp_bp.stack().reset_index()
+temp_bp.columns = ['OLIID','TicketNumber','TXNAcctPeriod','TXNCurrency', 'TXNType','TXNAmount']
+temp_bp.loc[(temp_bp.TXNType=='Billed'),'TXNCategory'] = 'Billing'
+#temp_bp.loc[(temp_bp.TXNType=='Total Billed'),'TXN Subcategory'] = 'Total' ###
+temp_bp.loc[(temp_bp.TXNType=='Payment'),'TXNCategory'] = 'Payment'
+#temp_bp.loc[(temp_bp.TXNType=='Total Payment'),'TXN Subcategory'] = 'Total' ##3
+temp_bp.loc[(temp_bp.TXNType=='Total Billed'),'TXNLineNumber'] = int(-1)
+temp_bp.loc[(temp_bp.TXNType=='Total Payment'),'TXNLineNumber'] = int(-2)
 '''
