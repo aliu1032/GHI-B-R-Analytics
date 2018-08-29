@@ -357,7 +357,7 @@ for a in temp.groups.keys():
     temp_sum = Claim_pymnt[((Claim_pymnt.TXNType.isin(['AC','AD'])) \
                             & (Claim_pymnt.QDXAdjustmentCode.isin(temp_codes)))].groupby(['OLIID']).agg({'TXNAmount' :'sum'})
     temp_sum.columns = [a]
-    Adjust_Category = pd.concat([Adjust_Category,temp_sum], axis=1, sort=False)  
+    Adjust_Category = pd.concat([Adjust_Category,temp_sum], axis=1)  
 
 ##also lay out the summarized amount of CategoryDesc
 category = 'Category'
@@ -368,7 +368,7 @@ for a in temp.groups.keys():
     temp_sum = Claim_pymnt[((Claim_pymnt.TXNType.isin(['AC','AD'])) \
                             & (Claim_pymnt.QDXAdjustmentCode.isin(temp_codes)))].groupby(['OLIID']).agg({'TXNAmount' :'sum'})
     temp_sum.columns = [a]
-    GHIAdjust_Category = pd.concat([GHIAdjust_Category,temp_sum], axis=1, sort=False)
+    GHIAdjust_Category = pd.concat([GHIAdjust_Category,temp_sum], axis=1)
 
 '''
   Concatenate the OLI Charges, Payment, Adjustment
@@ -376,7 +376,7 @@ for a in temp.groups.keys():
 '''
 print ('Claim2Rev_QDX_GHI :: Update bill amount and payment amount by removing the charge error and refund')
 
-QDX_OLI_Receipt = pd.concat([Summarized_Claim, Summarized_PayorPaid, Summarized_PtPaid, Summarized_Adjust, Adjust_Category, GHIAdjust_Category], axis=1, sort=False)
+QDX_OLI_Receipt = pd.concat([Summarized_Claim, Summarized_PayorPaid, Summarized_PtPaid, Summarized_Adjust, Adjust_Category, GHIAdjust_Category], axis=1)
 QDX_OLI_Receipt = QDX_OLI_Receipt.fillna(0.0)
 
 # Calculate the OLI Test Charge and Payment received
@@ -396,7 +396,8 @@ print ('Claim2Rev_QDX_GHI :: fill missing list price')
 
 #read the standard price book price
 list_price_df = GData.getProductListPrice()
-temp = pd.merge(OLI_data[['Test','BilledCurrency','ListPrice']], list_price_df[['Test','BilledCurrency','Std_ListPrice']], how='left', left_on=['Test','BilledCurrency'], right_on=['Test','BilledCurrency'])
+temp = pd.merge(OLI_data[['Test','BilledCurrency','ListPrice']], list_price_df[['Test','BilledCurrency','Std_ListPrice']],
+                how='left', left_on=['Test','BilledCurrency'], right_on=['Test','BilledCurrency'])
 a = (~OLI_data.Test.isnull() & ~OLI_data.BilledCurrency.isnull() & OLI_data.ListPrice.isnull())
 OLI_data.loc[a,'ListPrice'] = temp.loc[a,'Std_ListPrice']
 
@@ -441,9 +442,9 @@ x = a & (b | c)
 OLI_data.loc[x, 'Status Notes'] = "Test Delivered = " + OLI_data.loc[a,'TestDelivered'].astype(str) + "*"
 
 #output the information for analysis & checking
-Delivered_w_issues = OLI_data[x]
-output_file = 'Delivered_w_issues.txt'
-Delivered_w_issues.to_csv(cfg.output_file_path+output_file, sep='|',index=False)
+#Delivered_w_issues = OLI_data[x]
+#output_file = 'Delivered_w_issues.txt'
+#Delivered_w_issues.to_csv(cfg.output_file_path+output_file, sep='|',index=False)
 
 # Scenarios: Test Not Delivered
 # Assume the Test Order is Active
@@ -453,7 +454,7 @@ OLI_data.loc[a,'Status'] = 'Active'
 # check the cancellation reason, failure code and update test order status accordingly
 
 b = OLI_data.OrderCancellationReason.isnull() & OLI_data.OrderLineItemCancellationReason.isnull()  # Cancellation reason is null
-c = OLI_data.FailureMessage.isnull()                                                                  # Failure code is null
+c = OLI_data.FailureMessage.isnull()                                                               # Failure code is null
 
 # Scenario: Test not delivered, either order or OLI cancellation reason present and failure message is null
 x = a & ~b & c
@@ -634,7 +635,6 @@ Claim2Rev= pd.merge(Claim2Rev, priorAuth[['priorAuthCaseNum','priorAuthEnteredDt
                                           'priorAuthResult_Category', 'PreClaim_Failure']]
                     , how='left', left_on='CurrentQDXCaseNumber', right_on='priorAuthCaseNum')
 
-
 ############################################################################
 # Source the OLI allowable amount from Quadax                              #
 # Payor provides the allowable amount with the EOB                         #
@@ -652,7 +652,7 @@ allowable_amt = Claim_pymnt[(Claim_pymnt.TXNType=='RI') & (Claim_pymnt.TXNAmount
 OLI_allowable = allowable_amt.groupby(['OLIID']).agg({'stdPymntAllowedAmt':'max'})
 OLI_allowable.columns = ['AllowedAmt']
 
-Claim2Rev = pd.merge(Claim2Rev, OLI_allowable, how='left', on = 'OLIID')
+Claim2Rev = pd.merge(Claim2Rev, OLI_allowable, how='left', left_on = 'OLIID', right_index=True)
 
 ################################################################################
 # Reporting Group is stamped by SFDC: lookup the formula for ReportingGroup(D) #
@@ -701,7 +701,7 @@ Summarized_adj.rename(columns = {'TXNCurrency':'Currency'}, inplace=True)
 Summarized_adj['TXNType'] = Summarized_adj['GHIAdjustmentCode'] + ':' + Summarized_adj['CategoryDesc']
 
 #######
-TXN_Detail = pd.concat([TXN_Detail, Summarized_adj], sort=False)
+TXN_Detail = pd.concat([TXN_Detail, Summarized_adj])
 TXN_Detail = TXN_Detail[~(TXN_Detail.TXNAmount == 0)].sort_values(by=['OLIID'])
 
 
@@ -725,7 +725,7 @@ TXN_Detail.loc[TXN_Detail['TXNType'].isin(['Total Outstanding']),'TXNType'] = 'O
 
 ## Adding the OLI detail, Keeping the Tier2PayorID for merging with the GNAM sets assignment
 OLI_detail = OLI_data[['OLIID','Test','TestDeliveredDate'
-                        ,'Tier1Payor','Tier2Payor','Tier2PayorID','Tier4Payor','FinancialCategory','ReportingGroup'
+                        ,'Tier1Payor','Tier1PayorID','Tier2Payor','Tier2PayorID','Tier4Payor','FinancialCategory','ReportingGroup'
                         , 'TerritoryRegion', 'OrderingHCPState']]
 #'LineOfBenefit'
 
@@ -754,7 +754,7 @@ Claim2Rev_tableau = Claim2Rev[['OrderID', 'OLIID', 'Test',
         'Revenue', 'AccrualRevenue', 'CashRevenue',
         'USDRevenue', 'USDAccrualRevenue', 'USDCashRevenue', 
         
-        'Tier1Payor', 'Tier2Payor', 'Tier4Payor','Tier2PayorID','FinancialCategory',
+        'Tier1Payor','Tier1PayorID', 'Tier2Payor', 'Tier4Payor','Tier2PayorID','FinancialCategory',
         'Tier1PayorName', 'Tier2PayorName', 'Tier4PayorName',
             
         'Reportable', 'IsCharge', 'TestDelivered',
@@ -947,18 +947,17 @@ Prostate_Appeals_Detail.columns = [['Tier1PayorID','Tier1PayorName','Tier2PayorI
 #   Add the Payor View Set assignment   #
 #########################################
 prep_file_name = "Payor-ViewSetAssignment.xlsx"
-
-Payor_view = pd.read_excel(cfg.prep_file_path+prep_file_name, sheet_name = "SetAssignment", usecols="B:C", encoding='utf-8-sig')
+Payor_view = pd.read_excel(cfg.prep_file_path+prep_file_name, sheet_name = "SetAssignment", usecols="B:D", encoding='utf-8-sig')
 
 for i in Payor_view.Set.unique() :
     #print (i)
-    code = Payor_view[Payor_view.Set==i].Tier2PayorID
-    Claim2Rev_tableau.loc[Claim2Rev_tableau.Tier2PayorID.isin(list(code)),i] = '1'
+    code = Payor_view[Payor_view.Set==i].PayorID
+    join_column = Payor_view[Payor_view.Set==i].JoinWith.iloc[0]
     
-    code = Payor_view[Payor_view.Set==i].Tier2PayorID
-    TXN_Detail.loc[TXN_Detail.Tier2PayorID.isin(list(code)),i] = '1'
+    Claim2Rev_tableau.loc[Claim2Rev_tableau[join_column].isin(list(code)),i] = '1'
+    TXN_Detail.loc[TXN_Detail[join_column].isin(list(code)),i] = '1'
 
-Claim2Rev_tableau.drop(['Tier2PayorID'], axis=1, inplace=True)
+Claim2Rev_tableau.drop(['Tier2PayorID', 'Tier1PayorID'], axis=1, inplace=True)
 # repeat columns for Tableau color purpose
 dup = ['USDAccrualRevenue', 'USDCashRevenue',
         'Total Payment', 'Total Outstanding', 'Total Adjustment',
@@ -1038,6 +1037,7 @@ Dashboard_Dataset = [['Front-End Charts', 'Claim2Rev', 'Managed Care Analytics']
                     ,['All','Claim2Rev','Managed Care Appeal Reports']
                     ,['Payor Test Criteria Summary','Long PTC','Managed Care PTC-PTV Report']
                     ,['Payor Test Validation Summary','Long PTV','Managed Care PTC-PTV Report']
+                    ,['All','ClaimTicket_AccountingPeriod_Rpt', 'Payor Monthly Report']
                     ]
 
 data_refresh = pd.DataFrame(data=Dashboard_Dataset, columns=['Dashboard','Dataset','Tableau File'])

@@ -37,7 +37,7 @@ for i in build:
                        'Ordering physician signed attestation statement to include Adjuvant Therapy']
 
     output_file = 'Wide_' + i + '_PTV.txt'
-    PTV[PTV.Test == i][select_columns].to_csv(cfg.output_file_path+output_file, sep='|',index=False)
+    PTV[PTV.Test == i][select_columns].to_csv(cfg.input_file_path+output_file, sep='|',index=False)
     
     PTV_header = ['Name', 'LastModifiedDate','Tier2PayorID', 'Tier2Payor', 'Line_of_Business',
                   'Tier4PayorID', 'Tier4Payor', 'QDX_InsPlan_Code', 'Line_of_Benefits',

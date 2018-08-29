@@ -40,7 +40,7 @@ for i in build:
     drop_columns = list(Wide_PTC.columns[Wide_PTC.columns.str.contains('_list')])
     select_columns = [ i for i in Wide_PTC.columns if i not in drop_columns]
     output_file = 'Wide_' + i +'_PTC.txt'
-    Wide_PTC[select_columns].to_csv(cfg.output_file_path+output_file, sep='|',index=False)
+    Wide_PTC[select_columns].to_csv(cfg.input_file_path+output_file, sep='|',index=False)
     
     print ('PayorCrieria :: done writing wide :: ', i ,'   ',datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
     

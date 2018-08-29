@@ -564,7 +564,7 @@ temp_rev.drop(['Test_x','Test_y','TestDeliveredDate_x', 'TestDeliveredDate_y'], 
 #            that rolls numbers up to OLI + Ticket + Accounting Period                 #
 ########################################################################################
 #, temp_bp
-Ticket_TXN_Detail = pd.concat([temp_claim, temp_pymnt, temp_outstanding], sort=False).\
+Ticket_TXN_Detail = pd.concat([temp_claim, temp_pymnt, temp_outstanding]).\
                     sort_values(by = ['OLIID', 'TXNLineNumber','TXNAcctPeriod'])
 
 ########### Version 1 ################
@@ -575,7 +575,7 @@ Ticket_TXN_Detail_v1 = pd.merge(Ticket_TXN_Detail, OLI_Payor, how='left', left_o
 Ticket_TXN_Detail_v1 = pd.merge(Ticket_TXN_Detail_v1, TickCnt, how='left', left_on=['OLIID'], right_index=True)
 Ticket_TXN_Detail_v1 = pd.merge(Ticket_TXN_Detail_v1, OLI_Test_Info, how='left', on='OLIID')
 
-Ticket_TXN_Detail_v1 = pd.concat([Ticket_TXN_Detail_v1, temp_rev], ignore_index=True, sort=False)
+Ticket_TXN_Detail_v1 = pd.concat([Ticket_TXN_Detail_v1, temp_rev], ignore_index=True)
 Ticket_TXN_Detail_v1 = Ticket_TXN_Detail_v1[~(Ticket_TXN_Detail_v1.TXNAmount == 0.0)]
 Ticket_TXN_Detail_v1['TXNAcctPeriodDate'] = pd.to_datetime(Ticket_TXN_Detail_v1.TXNAcctPeriod, format="%b %Y")
 
@@ -620,7 +620,7 @@ Ticket_TXN_Detail_v2.loc[Ticket_TXN_Detail_v2.TestDeliveredDate.isnull(), 'TestD
 Ticket_TXN_Detail_v2.drop(['Test_x','Test_y','TestDeliveredDate_x', 'TestDeliveredDate_y'], axis=1, inplace=True)
 
 
-Ticket_TXN_Detail_v2 = pd.concat([Ticket_TXN_Detail_v2, temp_rev], ignore_index=True, sort=False)
+Ticket_TXN_Detail_v2 = pd.concat([Ticket_TXN_Detail_v2, temp_rev], ignore_index=True)
 Ticket_TXN_Detail_v2 = Ticket_TXN_Detail_v2[~(Ticket_TXN_Detail_v2.TXNAmount == 0.0)]
 Ticket_TXN_Detail_v2['TXNAcctPeriodDate'] = pd.to_datetime(Ticket_TXN_Detail_v2.TXNAcctPeriod, format="%b %Y")
 
@@ -695,15 +695,15 @@ Ticket_TXN_Detail_v2 = Ticket_TXN_Detail_v2[['OLIID', 'Test', 'TicketNumber', 'Q
 #########################################
 prep_file_name = "Payor-ViewSetAssignment.xlsx"
 
-Payor_view = pd.read_excel(cfg.prep_file_path+prep_file_name, sheet_name = "SetAssignment", usecols="B:C", encoding='utf-8-sig')
+Payor_view = pd.read_excel(cfg.prep_file_path+prep_file_name, sheet_name = "SetAssignment", usecols="B:D", encoding='utf-8-sig')
 
 for i in Payor_view.Set.unique() :
-    code = Payor_view[Payor_view.Set==i].Tier2PayorID
-    AcctPeriod_Rpt.loc[AcctPeriod_Rpt.Tier2PayorID.isin(list(code)),i] = '1'
+    code = Payor_view[Payor_view.Set==i].PayorID
+    join_column = Payor_view[Payor_view.Set==i].JoinWith.iloc[0]
     
-    code = Payor_view[Payor_view.Set==i].Tier2PayorID
-    Ticket_TXN_Detail_v2.loc[Ticket_TXN_Detail_v2.Tier2PayorID.isin(list(code)),i] = '1'   
-
+    AcctPeriod_Rpt.loc[AcctPeriod_Rpt[join_column].isin(list(code)),i] = '1'
+    Ticket_TXN_Detail_v2.loc[Ticket_TXN_Detail_v2[join_column].isin(list(code)),i] = '1'
+    
 ###############################################
 #     Write the columns into a excel file     #
 ###############################################
@@ -728,16 +728,15 @@ print('Ticket TXN ', datetime.now().strftime('%Y-%m-%d %H:%M:%S') )
 output_file = 'Ticket_TXN_Detail.txt'
 Ticket_TXN_Detail_v2.to_csv(cfg.output_file_path+output_file, sep='|',index=False)
 
-print('Domestic IBC Claims TXN ', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+'''print('Domestic IBC Claims TXN ', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 output_file = 'Ticket_TXN_Detail_Domestic_IBC.txt'
 a = (Ticket_TXN_Detail_v2.Test=='IBC') & (Ticket_TXN_Detail_v2.BusinessUnit== 'Domestic')
 b = (Ticket_TXN_Detail_v2.OLIID.str.match('^OL'))
 c = (Ticket_TXN_Detail_v2.TestDeliveredDate >='2018-01-01') & (Ticket_TXN_Detail_v2.TestDeliveredDate <='2018-12-31')
 Ticket_TXN_Detail_v2[a & b & c].to_csv(cfg.output_file_path+output_file, sep='|',index=False)
+'''
 
-
-print('to csv :: done :: ', datetime.now().strftime('%Y-%m-%d %H:%M:%S') )
-print("DONE DONE DONE, Hurray")
+print("DONE DONE DONE, Hurray", datetime.now().strftime('%Y-%m-%d %H:%M:%S') )
 
 
 
