@@ -415,8 +415,8 @@ def getPayors (usage, folder, refresh = 1):
 
     select_column = ['Tier1Payor', 'Tier1PayorName', 'Tier1PayorID',
                       'Tier2Payor', 'Tier2PayorName', 'Tier2PayorID',
-                      'Tier4PayorID'
-                      #'Tier4Payor', 'Tier4PayorName', 
+                      'Tier4PayorID',
+                      'Tier4Payor', 'Tier4PayorName', 
                     ]
   
     return(output[select_column])

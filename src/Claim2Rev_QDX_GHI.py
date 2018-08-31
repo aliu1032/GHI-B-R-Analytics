@@ -110,17 +110,17 @@ ClaimTicket_appeal_wide = appeal_data['ClaimTicket_appeal_wide']
 OLI_data.rename(columns = {'CurrentTicketNumber':'BI_CurrentTicketNumber'}, inplace=True)
 
 temp3 = Claim_bill.groupby(['OLIID','TicketNumber'])['CaseNumber']  # this return a SeriesGroupBy with CaseNumber
-d = temp3.apply(lambda x : x.keys()[x.values.argmax()]) # iterate each group, return the index of the max value of the series, this is the db index number
+d = temp3.apply(lambda x : x.keys()[x.values.argmax()]) # find the latest Case Number for a Ticket
 
 temp1 = Claim_bill.loc[d][['OLIID','TicketNumber','CaseNumber','TXNDate']].copy() 
-temp2 = temp1.groupby(['OLIID']).agg({'TXNDate':'idxmax'}).TXNDate
+temp2 = temp1.groupby(['OLIID']).agg({'TXNDate':'idxmax'}).TXNDate   # find the latest Ticket for an OLI
 
 Current_ticket = Claim_bill.loc[temp2][['OLIID','TicketNumber', 'CaseNumber',
                                         'BillingCaseStatusSummary1', 'BillingCaseStatusSummary2',
                                         'BillingCaseStatusCode', 'BillingCaseStatus',
-                                        'TicketInsPlan_QDXCode','TicketInsPlan_GHICode','OLIDOS']].copy()
+                                        'TicketInsPlan_QDXCode','TicketInsPlan_GHICode','OLIDOS', 'TXNDate']].copy()
 
-Current_ticket.rename(columns = {'TicketNumber': 'CurrentQDXTicketNumber', 'OLIDOS':'QDX_DOS'}, inplace=True)
+Current_ticket.rename(columns = {'TicketNumber': 'CurrentQDXTicketNumber', 'OLIDOS':'QDX_DOS', 'TXNDate':'ClaimEntryDate'}, inplace=True)
 TickCnt = (pd.pivot_table(Claim_bill, index=['OLIID'], values = 'TicketNumber',\
                           aggfunc = lambda TicketNumber: len(TicketNumber.unique()))).rename(columns = {'TicketNumber': 'QDXTickCnt'})
 Current_ticket = pd.merge(Current_ticket, TickCnt, how='left', left_on='OLIID', right_index=True)
@@ -141,7 +141,7 @@ Current_reference.loc[a,'CurrentQDXCaseNumber'] = Current_reference.loc[a,'maxCa
 Current_reference = Current_reference[['OLIID','CurrentQDXTicketNumber','QDXTickCnt','CurrentQDXCaseNumber','QDXCaseCnt',
                                        'BillingCaseStatusSummary1', 'BillingCaseStatusSummary2',
                                        'BillingCaseStatusCode', 'BillingCaseStatus',
-                                       'TicketInsPlan_QDXCode','TicketInsPlan_GHICode', 'QDX_DOS']]
+                                       'TicketInsPlan_QDXCode','TicketInsPlan_GHICode', 'QDX_DOS', 'ClaimEntryDate']]
 
 OLI_data = pd.merge(OLI_data, Current_reference, how='left', on='OLIID')
 
@@ -165,6 +165,8 @@ OLI_data.loc[OLI_data.BillingCaseStatusSummary2.isna(), 'IsFullyAdjudicated'] = 
 ## if Tier4PayorID is null, patch it with the Ticket payor Id from Quadax
 a = (OLI_data.IsClaim==1) & (OLI_data.Tier4PayorID.isnull())
 OLI_data.loc[a,'Tier4PayorID'] = OLI_data.loc[a,'TicketInsPlan_GHICode']
+####for Roster, QDX does not have an insurance code, have to think of a way to pull the AltPlan Code
+### this is for when BI process with unknown Tier4, and the script patch the QDX plan number to unknown
 
 # if DateOfService is null, update it using Quadax DOS collected with claim
 a = (OLI_data.DateOfService.isnull())
@@ -174,11 +176,17 @@ OLI_data.loc[a, 'DateOfService'] = OLI_data.loc[a,'QDX_DOS']
 ## Join on the Tier4PayorID
 OLI_data.rename(columns = {'Tier1Payor':'BI_Tier1Payor', 'Tier1PayorID':'BI_Tier1PayorID', 'Tier1PayorName': 'BI_Tier1Payor_Name',
                            'Tier2Payor':'BI_Tier2Payor', 'Tier2PayorID':'BI_Tier2PayorID', 'Tier2PayorName': 'BI_Tier2Payor_Name',
-#                           'Tier4Payor':'BI_Tier1Payor', 'Tier4PayorID':'BI_Tier4PayorID', 'Tier1PayorName': 'BI_Tier4Payor_Name'
-                           }, 
-                inplace=True)
+                           'Tier4Payor':'BI_Tier4Payor',  'Tier4PayorName': 'BI_Tier4Payor_Name'
+                           #'Tier4PayorID':'BI_Tier4PayorID',
+                           }, inplace=True)
+
+OLI_data.Tier4PayorID = OLI_data.Tier4PayorID.str.strip()
+# Quadax Insurance Plan 6775 is mapped into 2 Tier4PayorID: PL0006511, PL0001459
+# PL0001459 is deleted in SFDC, reassign the OLI with Tier4PayorID = PL0001459 to the new ID PL0006511
+OLI_data.loc[OLI_data.Tier4PayorID=='PL0001459','Tier4PayorID'] = 'PL0006511'
 
 OLI_data = pd.merge(OLI_data, SFDC_Payors, how='left', on='Tier4PayorID')
+
 
 '''
 ## section to check the Current Case and CurrentTicket number mapping
@@ -257,7 +265,6 @@ aggregations = {
     'TotalUSDRevenue':'sum',
     'TotalUSDAccrualRevenue' : 'sum',
     'TotalUSDCashRevenue' :'sum',
-    'ClaimPeriodDate' : 'max',
     'AccountingPeriodDate' : ['count','min','max']
     }
 
@@ -266,7 +273,6 @@ Summarized_Revenue = Revenue_data.groupby(['OLIID']).agg(aggregations)
 Summarized_Revenue.columns = columns = ['_'.join(col).strip() for col in Summarized_Revenue.columns.values] # flatten the multilevel column name
 Summarized_Revenue.columns = ['Revenue','AccrualRevenue','CashRevenue',
                                  'USDRevenue', 'USDAccrualRevenue', 'USDCashRevenue',
-                                 'ClaimPeriodDate',
                                  'AccountingPeriodCnt', 'AccountingPeriodDate_init','AccountingPeriodDate_last']
 Summarized_Revenue.reset_index(inplace=True)
 
@@ -347,12 +353,12 @@ prep_file_name = "QDX_ClaimDataPrep.xlsx"
 Adj_code = pd.read_excel(cfg.prep_file_path+prep_file_name, sheet_name = "AdjustmentCode", usecols="A,C:E,G", encoding='utf-8-sig')
 Adj_code.columns = [cell.strip() for cell in Adj_code.columns]
 
-category = 'BR_Category'
+category = 'AdjustmentGroup'
 temp = Adj_code.groupby([category])
 
 Adjust_Category = pd.DataFrame()
 for a in temp.groups.keys():
-    #print (a, list(Adj_code[(Adj_code.GHI_BR_Category==a)]['Code']))
+    #print (a, list(Adj_code[(Adj_code.AdjustmentGroup==a)]['Code']))
     temp_codes = list(Adj_code[(Adj_code[category]==a)]['Code'])
     temp_sum = Claim_pymnt[((Claim_pymnt.TXNType.isin(['AC','AD'])) \
                             & (Claim_pymnt.QDXAdjustmentCode.isin(temp_codes)))].groupby(['OLIID']).agg({'TXNAmount' :'sum'})
@@ -654,23 +660,11 @@ OLI_allowable.columns = ['AllowedAmt']
 
 Claim2Rev = pd.merge(Claim2Rev, OLI_allowable, how='left', left_on = 'OLIID', right_index=True)
 
-################################################################################
-# Reporting Group is stamped by SFDC: lookup the formula for ReportingGroup(D) #
-# Per Cris M, Micromet is not Node Positive                                    #
-# Update the label using the NodalStatus value                                 #
-################################################################################
-'''
-# moved to GetGHIData
-a = Claim2Rev.ReportingGroup == 'Node Positive (Micromet)'
-Claim2Rev.loc[a,'ReportingGroup'] = Claim2Rev.loc[a,'NodalStatus'] 
-'''
 ############################################################
 #   Create a Transpose of the Bill, Adjustment, Revenue    #
 #   This is used for the Adjustment detail view            #
 ############################################################
 print ('Claim2Rev_QDX_GHI :: Create a transpose of the Claim2Rev data')
-#'OLIDOS','ClaimPeriodDate',
-#### ClaimPeriodDate is null for OL000772580 and then the pivot_table excluded it
 
 Claim2Rev_tp = Claim2Rev[(~(Claim2Rev.CurrentQDXTicketNumber.isnull()))].copy()
 
@@ -690,11 +684,11 @@ temp_adjust = Claim_pymnt[(Claim_pymnt.TXNType.isin(['AC','AD']))] \
                          [['OLIID', 'TicketNumber', 'Test','TXNAcctPeriod'
                           ,'TXNCurrency', 'TXNAmount', 'TXNType','TXNLineNumber'
                           ,'QDXAdjustmentCode', 'Description'
-                          ,'GHIAdjustmentCode','CategoryDesc','BR_Category']].copy()
+                          ,'GHIAdjustmentCode','CategoryDesc','AdjustmentGroup']].copy()
 
 Summarized_adj = temp_adjust.groupby(['OLIID','TXNCurrency'
                                       ,'QDXAdjustmentCode', 'Description'
-                                      ,'GHIAdjustmentCode','CategoryDesc','BR_Category']).agg({'TXNAmount' :'sum'})
+                                      ,'GHIAdjustmentCode','CategoryDesc','AdjustmentGroup']).agg({'TXNAmount' :'sum'})
 Summarized_adj = Summarized_adj.reset_index()
 
 Summarized_adj.rename(columns = {'TXNCurrency':'Currency'}, inplace=True)
@@ -747,15 +741,15 @@ Claim2Rev_tableau = Claim2Rev[['OrderID', 'OLIID', 'Test',
         'PayorPaid','PatientPaid',
 
         'Total Adjustment'
-        ] + list(Adj_code.groupby('BR_Category').groups.keys()) + [
+        ] + list(Adj_code.groupby('AdjustmentGroup').groups.keys()) + [
  
         'AllowedAmt',
         
         'Revenue', 'AccrualRevenue', 'CashRevenue',
         'USDRevenue', 'USDAccrualRevenue', 'USDCashRevenue', 
         
-        'Tier1Payor','Tier1PayorID', 'Tier2Payor', 'Tier4Payor','Tier2PayorID','FinancialCategory',
-        'Tier1PayorName', 'Tier2PayorName', 'Tier4PayorName',
+        'Tier1Payor','Tier1PayorID', 'Tier2Payor','Tier2PayorID', 'Tier4Payor','Tier4PayorID','FinancialCategory',
+        'Tier1PayorName', 'Tier2PayorName', 'Tier4PayorName', 'QDXInsPlanCode',
             
         'Reportable', 'IsCharge', 'TestDelivered',
         'IsClaim', 'IsFullyAdjudicated',
@@ -847,7 +841,7 @@ Claim2Rev_for_ML = Claim2Rev[Claim2Rev.BusinessUnit == 'Domestic']\
 
 #        'ClmAmtAdj', 'stdP_ClmAmtAdj',
         'Total Adjustment'
-        ] + list(Adj_code.groupby('BR_Category').groups.keys()) + [
+        ] + list(Adj_code.groupby('AdjustmentGroup').groups.keys()) + [
  
         'AllowedAmt',
                 
@@ -871,7 +865,7 @@ Claim2Rev_for_ML = Claim2Rev[Claim2Rev.BusinessUnit == 'Domestic']\
 
 #        'OLIStartDate', 'DateOfService',
 #        'TicketCnt',
- #       'ClaimPeriodDate', 'AccountingPeriodCnt',
+#        'ClaimEntryDate', 'AccountingPeriodCnt',
 #        'AccountingPeriodDate_init', 'AccountingPeriodDate_last',
 #        'AllowedAmt_Outliner', 'AllowedAmt', 'DeductibleAmt', 'CoinsAmt'
 
@@ -957,7 +951,7 @@ for i in Payor_view.Set.unique() :
     Claim2Rev_tableau.loc[Claim2Rev_tableau[join_column].isin(list(code)),i] = '1'
     TXN_Detail.loc[TXN_Detail[join_column].isin(list(code)),i] = '1'
 
-Claim2Rev_tableau.drop(['Tier2PayorID', 'Tier1PayorID'], axis=1, inplace=True)
+#Claim2Rev_tableau.drop(['Tier2PayorID', 'Tier1PayorID'], axis=1, inplace=True)
 # repeat columns for Tableau color purpose
 dup = ['USDAccrualRevenue', 'USDCashRevenue',
         'Total Payment', 'Total Outstanding', 'Total Adjustment',

@@ -14,16 +14,9 @@ import pandas as pd
 from datetime import datetime
 
 import project_io_config as cfg
-#prep_file_path = "C:\\Users\\aliu\\Box Sync\\aliu Cloud Drive\\workspace\\Supplement\\"
-#sql_folder = "C:\\Users\\aliu\\Box Sync\\aliu Cloud Drive\\workspace\\SQL\\"
 
-#server = 'ODSProd01'   ## Quadax nightly zip files location
 server = cfg.QDX_DB_Server
 database = cfg.QDX_DB
-
-#from data import GHI_EDWStage_SQL
-#folder="C:\\Users\\aliu\\Box Sync\\aliu Cloud Drive\\Analytics\\Payor Analytics\\Jan292018\\"
-#refresh = 0
 
 #################################################
 #   Appeal Case & Status                        #
@@ -253,9 +246,12 @@ def stdPayment(usage, folder, refresh=0):
                          , 'TicketInsComp_GHICode' : 'PrimaryInsComp_GHICode' 
                          , 'TicketInsPlan_GHICode' : 'PrimaryInsPlan_GHICode'
                          }
-    
+        
     for a in list(ticket_payor_map.keys()):
         output.loc[output.TicketInsPlan_QDXCode.isnull(),a] = output.loc[output.TicketInsPlan_QDXCode.isnull(),ticket_payor_map.get(a)]
+
+    a = output.TicketInsPlan_QDXCode == 'ROST'
+    output.loc[a,'TicketInsPlan_QDXCode'] = output.loc[a,'TicketInsPlan_GHICode']
 
     # insert a flag to indicate if the RI payment from the TicketInsurance.
     # value = false : the payment could be from 2nd, 3rd, etc patient insurance
@@ -394,18 +390,10 @@ def stdClaim(usage, folder, refresh=0):
         output[a] = output[ticket_payor_map1.get(a)]
         output.loc[output.ReRoutedPrimaryInsPlan_QDXCode.isnull(),a] = output.loc[output.ReRoutedPrimaryInsPlan_QDXCode.isnull(),ticket_payor_map2.get(a)]
  
-    '''
-    payor_dict = {'ReRoutedPrimaryInsPlan_QDXCode' : 'PrimaryInsPlan_QDXCode'
-     , 'ReRoutedPrimaryInsCompName' : 'PrimaryInsComp_QDXCode'
-     , 'ReRoutedPrimaryInsPlanName' : 'PrimaryInsPlan_QDXCode'
-     , 'ReRoutedPrimaryInsFC' : 'PrimaryInsComp_QDXCode'
-     , 'ReRoutedPrimaryInsComp_GHICode' : 'PrimaryInsComp_GHICode' 
-     , 'ReRoutedPrimaryInsPlan_GHICode' : 'PrimaryInsPlan_GHICode'
-    } 
-    
-    for a in list(payor_dict.keys()):
-        output.loc[output.ReRoutedPrimaryInsPlan_QDXCode.isnull(),a] = output.loc[output.ReRoutedPrimaryInsPlan_QDXCode.isnull(),payor_dict.get(a)]
-    '''   
+    # Quadax does not assign plan id to GHI Roster Account.
+    a = output.TicketInsPlan_QDXCode == 'ROST'
+    output.loc[a,'TicketInsPlan_QDXCode'] = output.loc[a,'TicketInsPlan_GHICode']
+
     ##########################################
     # Select and return data based on usage   #
     ###########################################
