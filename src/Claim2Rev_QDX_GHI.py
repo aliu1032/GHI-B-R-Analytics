@@ -69,6 +69,7 @@ from data import GetGHIData as GData
 Revenue_data = GData.revenue_data('Claim2Rev', cfg.input_file_path, refresh)
 OLI_data = GData.OLI_detail('Claim2Rev', cfg.input_file_path, refresh)
 SFDC_Payors = GData.getPayors('Claim2Rev', cfg.input_file_path, refresh)
+OLI_Result_Specimen = GData.getOLIResult_Specimen('', cfg.input_file_path, refresh)
 
 ###############################################################
 #   Read QDX Appeal Data                                      #
@@ -641,6 +642,14 @@ Claim2Rev= pd.merge(Claim2Rev, priorAuth[['priorAuthCaseNum','priorAuthEnteredDt
                                           'priorAuthResult_Category', 'PreClaim_Failure']]
                     , how='left', left_on='CurrentQDXCaseNumber', right_on='priorAuthCaseNum')
 
+
+############################################################################
+# Adding Resulted Specimen Procedure Type                                  #
+# all the EOB issued with payment to the OLI                               #
+############################################################################
+
+Claim2Rev = pd.merge(Claim2Rev, OLI_Result_Specimen[['OLIID','ProcedureType']], how='left', on ='OLIID')
+
 ############################################################################
 # Source the OLI allowable amount from Quadax                              #
 # Payor provides the allowable amount with the EOB                         #
@@ -809,12 +818,8 @@ Claim2Rev_USD_excel = Claim2Rev[Claim2Rev.BusinessUnit == 'Domestic'][['OrderID'
         'ReportingGroup', 'RecurrenceScore', 'Specialty','RiskGroup', 
         'NodalStatus','EstimatedNCCNRisk',
 
-#        'appealCaseNum',
         'CurrentQDXCaseNumber', 'appealCampaignCode',
         'A1', 'A2', 'A3', 'A4', 'A5', 'ER', 'L1', 'L2', 'L3',
-
-#        'A1_Status', 'A2_Status', 'A3_Status', 'A4_Status', 'A5_Status',
-#        'ER_Status', 'L1_Status', 'L2_Status', 'L3_Status',
 
         'Last Appeal level', 'firstappealEntryDt',
         'appealDenReason','appealDenReasonDesc',
@@ -828,7 +833,7 @@ Claim2Rev_USD_excel = Claim2Rev[Claim2Rev.BusinessUnit == 'Domestic'][['OrderID'
         'priorAuthResult', 'priorAuthResult_Category'
         ]]
 
-Claim2Rev_for_ML = Claim2Rev[Claim2Rev.BusinessUnit == 'Domestic']\
+OLI_PTx = Claim2Rev[Claim2Rev.BusinessUnit == 'Domestic']\
         [['OrderID', 'OLIID', 'Test', 
         'TestDeliveredDate', 'CurrentQDXTicketNumber','QDXTickCnt','QDXCaseCnt',
         'BillingCaseStatusSummary2', 'BillingCaseStatusCode', 'BillingCaseStatus','Orig_BillingCaseStatus',
@@ -862,39 +867,13 @@ Claim2Rev_for_ML = Claim2Rev[Claim2Rev.BusinessUnit == 'Domestic']\
         'Territory', 'TerritoryRegion', 'TerritoryArea',
         'OrderingHCPCity', 'OrderingHCPState', 'OrderingHCPCountry',
         'IsOrderingHCPCTR', 'IsOrderingHCPPECOS', 'OrderStartDate',
-
-#        'OLIStartDate', 'DateOfService',
-#        'TicketCnt',
-#        'ClaimEntryDate', 'AccountingPeriodCnt',
-#        'AccountingPeriodDate_init', 'AccountingPeriodDate_last',
-#        'AllowedAmt_Outliner', 'AllowedAmt', 'DeductibleAmt', 'CoinsAmt'
-
-#        'appealCaseNum',
-#        'CurrentQDXCaseNumber',
-#        'A1_Status', 'A2_Status', 'A3_Status', 'A4_Status', 'A5_Status',
-#        'ER_Status', 'L1_Status', 'L2_Status', 'L3_Status',
         
-#        'A1', 'A2', 'A3', 'A4', 'A5', 'ER', 'L1', 'L2', 'L3',  #spelled out status, not needed in Tableau
-#        'Last Appeal level', 'firstappealEntryDt','lastappealEntryDt','appealRptDt',
-#        'appealDenReason','appealDenReasonDesc',
-#        'appealCurrency','appealAmtChg', 'appealAmtChgExp','appealAmtAllow', 'appealAmtClmRec', 
-#        'appealAmt', 'appealAmtAplRec',
-#        'appealSuccess', 
-#        'appealResult',
-        
-#        'IsAppeal','CompletedAppeal','Failed','Succeed','In Process','Removed',
-        
-        'Specialty','NodalStatus','PatientAgeAtOrderStart',
+        'Specialty','ProcedureType','NodalStatus','PatientAgeAtDiagnosis',
         'SubmittingDiagnosis','RiskGroup','ReportingGroup','HCPProvidedClinicalStage',
-        'SubmittedER', 'SubmittedHER2','SubmittedPR','MultiplePrimaries',
+        'SubmittedER', 'SubmittedHER2','SubmittedPR','MultiplePrimaries', 'IBC_TumorSizeCentimeters','DCISTumorSize',
         'RecurrenceScore','HER2GeneScore','ERGeneScore','PRGeneScore','DCISScore',
         'HCPProvidedGleasonScore','HCPProvidedPSA',
         'EstimatedNCCNRisk', 'SubmittedNCCNRisk', 'SFDCSubmittedNCCNRisk','FavorablePathologyComparison',
-        
- #       'priorAuthCaseNum','priorAuthEnteredDt','priorAuthEnteredTime',
- #       'priorAuthDate',
- #       'priorAuthResult','priorAuthReqDesc','priorAuthNumber',
- #       'priorAuthResult_Category'
         ]]
 
 #Extract data set of IBC Appeals Detail 
@@ -949,6 +928,7 @@ for i in Payor_view.Set.unique() :
     join_column = Payor_view[Payor_view.Set==i].JoinWith.iloc[0]
     
     Claim2Rev_tableau.loc[Claim2Rev_tableau[join_column].isin(list(code)),i] = '1'
+    Claim2Rev.loc[Claim2Rev_tableau[join_column].isin(list(code)),i] = '1'
     TXN_Detail.loc[TXN_Detail[join_column].isin(list(code)),i] = '1'
 
 #Claim2Rev_tableau.drop(['Tier2PayorID', 'Tier1PayorID'], axis=1, inplace=True)
@@ -969,10 +949,13 @@ output_file = 'OLI_TXN_Detail.txt'
 TXN_Detail.to_csv(cfg.output_file_path+output_file, sep='|',index=False)
 
 
-print ('Claim2Rev_QDX_GHI :: write Claim2Rev report ', len(Claim2Rev_tableau), 'rows :: start ::', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-output_file = 'Claim2Rev.txt'
+print ('Claim2Rev_QDX_GHI :: write Claim2Rev_4_Tableau report ', len(Claim2Rev_tableau), 'rows :: start ::', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+output_file = 'Claim2Rev_4_Tableau.txt'
 Claim2Rev_tableau.to_csv(cfg.output_file_path+output_file, sep='|',index=False)
 
+print ('Claim2Rev_QDX_GHI :: write Claim2Rev report ', len(Claim2Rev), 'rows :: start ::', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+output_file = 'Claim2Rev.txt'
+Claim2Rev.to_csv(cfg.output_file_path+output_file, sep='|',index=False)
 
 print ('Claim2Rev_QDX_GHI :: write Claim2Rev USD xlsx report ', len(Claim2Rev_USD_excel), 'rows :: start ::', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 output_file = 'Claim2Rev_USD.xlsx'
@@ -996,12 +979,12 @@ Prostate_Appeals_Detail.to_excel(writer, index = False)
 writer.save()
 writer.close()
 
-print ('Claim2Rev_QDX_GHI :: write Claim2Rev output for ML ', len(Claim2Rev_for_ML), 'rows :: start ::', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-output_file = 'Claim2Rev_ML.txt'
-Claim2Rev_for_ML.to_csv(cfg.output_file_path+output_file, sep='|',index=False)
+print ('Claim2Rev_QDX_GHI :: write Claim2Rev output for Payment Assessment ', len(OLI_PTx), 'rows :: start ::', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+output_file = 'OLI_PTx.txt'
+OLI_PTx.to_csv(cfg.output_file_path+output_file, sep='|',index=False)
 
 
-'''
+
 #PreClaim Status for Ron's
 Cond = (Claim2Rev.BusinessUnit == 'Domestic') & \
         (Claim2Rev.TestDeliveredDate >= '2017-01-01') & \
@@ -1010,11 +993,11 @@ Cond = (Claim2Rev.BusinessUnit == 'Domestic') & \
 PreClaim_Status_SalesOps = Claim2Rev[Cond][['OrderID','OLIID', 'Test','priorAuthResult']]
 
 output_file = 'PreClaim_Status_SalesOps.xlsx'
-writer = pd.ExcelWriter(output_file_path+output_file, engine='openpyxl', date_format='yyyy/mm/dd')
+writer = pd.ExcelWriter(cfg.output_file_path+output_file, engine='openpyxl', date_format='yyyy/mm/dd')
 PreClaim_Status_SalesOps.to_excel(writer, index = False)
 writer.save()
 writer.close()
-'''
+
 ###############################################
 #    Writing a Data refresh log into Excel    #
 ###############################################
@@ -1031,7 +1014,7 @@ Dashboard_Dataset = [['Front-End Charts', 'Claim2Rev', 'Managed Care Analytics']
                     ,['All','Claim2Rev','Managed Care Appeal Reports']
                     ,['Payor Test Criteria Summary','Long PTC','Managed Care PTC-PTV Report']
                     ,['Payor Test Validation Summary','Long PTV','Managed Care PTC-PTV Report']
-                    ,['All','ClaimTicket_AccountingPeriod_Rpt', 'Payor Monthly Report']
+                    ,['All','Payor_Monthly_Report', 'Payor Monthly Report']
                     ]
 
 data_refresh = pd.DataFrame(data=Dashboard_Dataset, columns=['Dashboard','Dataset','Tableau File'])

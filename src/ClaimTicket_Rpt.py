@@ -731,7 +731,7 @@ for i in update:
     AcctPeriod_Rpt.loc[AcctPeriod_Rpt[i]==0,i] = ''
 
 print('writing ClaimTicket_AccountingPeriod_Rpt', datetime.now().strftime('%Y-%m-%d %H:%M:%S') )
-output_file = 'ClaimTicket_AccountingPeriod_Rpt.txt'
+output_file = 'Payor_Monthly_Report.txt'
 AcctPeriod_Rpt.to_csv(cfg.output_file_path+output_file, sep='|',index=False)
 
 

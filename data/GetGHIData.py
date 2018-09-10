@@ -18,7 +18,7 @@ server = cfg.GHI_DB_Server
 #prep_file_path = "C:\\Users\\aliu\\Box Sync\\aliu Cloud Drive\\workspace\\Supplement\\"
 #sql_folder = "C:\\Users\\aliu\\Box Sync\\aliu Cloud Drive\\workspace\\SQL\\"
  
-#folder="C:\\Users\\aliu\\Box Sync\\aliu Cloud Drive\\Analytics\\Payor Analytics\\May022018\\"
+#folder="C:\\Users\\aliu\\Box Sync\\aliu Cloud Drive\\Analytics\\Payor Analytics\Aug30018\\"
 #refresh = 0
 
 #################################################
@@ -420,6 +420,34 @@ def getPayors (usage, folder, refresh = 1):
                     ]
   
     return(output[select_column])
+
+#################################################
+#   Result Specimen                         #
+#################################################
+def getOLIResult_Specimen (usage, folder, refresh = 1):
+    
+    print ("function : get OLI Result Specimen :: start :: ", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    print ('usage = ', usage,'\nrefresh = ', refresh, '\nfolder is ', folder, "\n\n")
+    
+    #server = 'EDWStage'    
+    database = 'StagingDB'
+    target = server + '_' + database + '_' + 'OLI_Result_Specimen.txt'
+    
+    if refresh:
+        cnxn = pyodbc.connect('Trusted_Connection=yes',DRIVER='{ODBC Driver 13 for SQL Server}',SERVER=server)
+
+        f = open(cfg.sql_folder + 'StagingDB_OLI_Result_Specimen.sql')
+        tsql = f.read()
+        f.close()
+
+        output = pd.read_sql(tsql, cnxn)
+        output.to_csv(folder + target, sep='|', index=False)
+        
+    else:
+        output = pd.read_csv(folder + target, sep="|", encoding="ISO-8859-1")
+        
+    return(output)
+
 #################################################
 #   stgBills                                    #
 #################################################
