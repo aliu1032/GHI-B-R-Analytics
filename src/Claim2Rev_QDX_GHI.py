@@ -780,7 +780,7 @@ Claim2Rev_tableau = Claim2Rev[['OrderID', 'OLIID', 'Test',
         'IsAppeal','CompletedAppeal','Failed','Succeed','In Process','Removed',
         
         'ReportingGroup','RecurrenceScore', 'Specialty',
-        'RiskGroup', 'NodalStatus','EstimatedNCCNRisk'
+        'RiskGroup', 'NodalStatus','EstimatedNCCNRisk', 'SubmittedNCCNRisk'
         ]].copy()
         
 #Export a dataset in excel for Jodi, includes Domestic Orders
@@ -826,7 +826,7 @@ Claim2Rev_USD_excel = Claim2Rev[Claim2Rev.BusinessUnit == 'Domestic'][['OrderID'
         'appealAmtChg', 'appealAmtChgExp',
         'appealAmtAllow', 'appealAmtClmRec', 'appealAmt', 'appealAmtAplRec',
         'appealRptDt', 'appealSuccess', 'appealCurrency', 'appealResult',
-        'Specialty','NodalStatus','EstimatedNCCNRisk',
+        'Specialty','NodalStatus','EstimatedNCCNRisk','SubmittedNCCNRisk',
 
         'priorAuthCaseNum','priorAuthDate',
         'priorAuthEnteredDt','priorAuthEnteredTime',

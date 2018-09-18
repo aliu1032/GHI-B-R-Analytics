@@ -37,27 +37,28 @@ def OLI_detail(usage, folder, refresh=1, PayorHierarchy = 'At_OrderCapture'):
     #database = 'StagingDB'
     database = 'EDWDB'
     
-    #if PayorHierarchy == 'At_OrderCapture':
-    target = server + '_' + database + '_' + 'OrderLineDetail.txt'
-    #else:
-    #    target = server + '_' + database + '_' + 'OrderLineDetail_CurrentPayorHierarchy.txt'
+    OLI_target = server + '_' + database + '_' + 'OrderLineDetail.txt'
+    NCCN_target = 'EDWStage_StagingDB_' + 'Revised_NCCNFavorability.txt'
         
     if refresh:    
         cnxn = pyodbc.connect('Trusted_Connection=yes',DRIVER='{ODBC Driver 13 for SQL Server}', SERVER=server, DATABASE=database)
        
-        #if PayorHierarchy == 'At_OrderCapture':
+        #Read OLI data
         f = open(cfg.sql_folder + 'EDWDB_fctOrderLineItem.sql')
         tsql = f.read()
         f.close()
-        #else:
-        #    f = open(cfg.sql_folder + 'EDWDB_fctOrderLineItem_CurrentPayorHierarchy.sql')
-        #    tsql = f.read()
-        #    f.close()
             
         output = pd.read_sql(tsql, cnxn)
-        output.to_csv(folder + target, sep='|', index=False)
+        output.to_csv(folder + OLI_target, sep='|', index=False)
+        
+        #Read revised NCCN favorability from the Order Description field
+        f = open(cfg.sql_folder + 'StagingDB_Revised_NCCNFavorabilty.sql')
+        tsql = f.read()
+        f.close()
+        
+        Revised_NCCN = pd.read_sql(tsql,cnxn)
+        Revised_NCCN.to_csv(folder + NCCN_target, sep ='|', index=False)
 
-    
     #prep_file_name = "GHI_OLI_Claim_Data_Prep.xlsx"
     #prep_note = pd.read_excel(prep_file_path+prep_file_name, sheet_name = "OrderLineDetail", skiprows=1, encoding='utf-8-sig')
     #########
@@ -71,9 +72,8 @@ def OLI_detail(usage, folder, refresh=1, PayorHierarchy = 'At_OrderCapture'):
     if ~refresh:
         #read the data from local
         #use dtype=object until know where is the type error
-        output = pd.read_csv(folder+target, sep="|", encoding="ISO-8859-1",  dtype=data_type)
-
-    #utput.rename(columns = rename_columns, inplace=True)
+        output = pd.read_csv(folder+OLI_target, sep="|", encoding="ISO-8859-1",  dtype=data_type)
+        Revised_NCCN = pd.read_csv(folder+NCCN_target, sep="|")
 
     #################################################
     #  Prepare Order Line Item Data                 #
@@ -87,7 +87,7 @@ def OLI_detail(usage, folder, refresh=1, PayorHierarchy = 'At_OrderCapture'):
     for a in temp:
         output[a] = pd.to_datetime(output[a].astype(str), format = "%Y%m%d.0", errors='coerce')
 
-    temp = ['OrderStartDate','OLIStartDate']
+    temp = ['OrderStartDate','OLIStartDate', 'OrderCancellationDate', 'OrderLineItemCancellationDate']
     for a in temp:
         output[a] = pd.to_datetime(output[a].astype(str), format = "%Y%m%d", errors='coerce')
         
@@ -149,11 +149,35 @@ def OLI_detail(usage, folder, refresh=1, PayorHierarchy = 'At_OrderCapture'):
     output = pd.merge(output, inscode, how='left',\
                                     left_on=['Tier4PayorID'], right_on=['insAltId'])
     output = output.drop(['QDXInsCode','insAltId'],1)
+
+    ## get the revised NCCN Risk Category for Prostate Intermediate Risk
+    ## first fetch the information from Order Description
+    ## patch it with the calculation
        
     output['SFDCSubmittedNCCNRisk'] = output['SubmittedNCCNRisk']
     '''
-    Calculate the NCCN refinedS Intermediate Favorable and UnFavorable Risk
+    Calculate the NCCN refined Intermediate Favorable and UnFavorable Risk
     '''
+
+    ## Standardize the Revised SubmittedNCCNRisk
+    cond = Revised_NCCN['Revised SubmittedNCCNRisk'].isin(['INTERMEDIATE FAVORABLE','Intermediate favorable', 'Intermediate Favorable'])
+    Revised_NCCN.loc[cond,'Revised SubmittedNCCNRisk'] = 'Favorable Intermediate'
+    
+    cond = Revised_NCCN['Revised SubmittedNCCNRisk'].isin(['INTERMEDIATE UNFAVORABLE','Intermediate unfavorable', 'Intermediate Unfavorable'])
+    Revised_NCCN.loc[cond,'Revised SubmittedNCCNRisk'] = 'Unfavorable Intermediate'
+
+    temp = Revised_NCCN[~Revised_NCCN['Revised SubmittedNCCNRisk'].isin(['Favorable Intermediate','Unfavorable Intermediate']) &
+                 ~Revised_NCCN['Revised SubmittedNCCNRisk'].isnull()
+                ]['Revised SubmittedNCCNRisk']
+    len(temp)
+    
+    output = pd.merge(output, Revised_NCCN[['OLIID','Test','Revised SubmittedNCCNRisk']], how='left', on=['OLIID','Test'])
+    
+    # update the Submitted NCCN with the revised NCCN favorbilty captured in the order description
+    cond = (output.TestDeliveredDate>='2017-06-01') & (output.Test=='Prostate') & (output.SFDCSubmittedNCCNRisk == 'Intermediate Risk')
+    output.loc[cond ,'SubmittedNCCNRisk'] = output.loc[cond]['Revised SubmittedNCCNRisk']
+    
+    ## NCCN Calculator
     def NCCN_Update(Gleason, PSA, Stage, OrgNCCN):
         if ((Gleason=='') and (Stage=='')):
             return OrgNCCN # 'Intermediate favorability indeterminate'
@@ -161,38 +185,33 @@ def OLI_detail(usage, folder, refresh=1, PayorHierarchy = 'At_OrderCapture'):
             #or (Stage=='') or (PSA==0.0)):
             return OrgNCCN # 'Intermediate favorability indeterminate'
         elif (Gleason == '4+3'):
-            return 'Intermediate Unfavorable'
+            return 'Unfavorable Intermediate'
         elif Gleason == '3+3':
             if PSA <10:
-                return 'Intermediate Favorable'
+                return 'Favorable Intermediate'
             elif PSA < 20:  ## PSA 10 to 19
                 if (Stage == ''):
                     return OrgNCCN # 'Intermediate favorability indeterminate'
                 elif Stage in ['T1c', 'T2a', 'T1C', 'T2A']:
-                    return 'Intermediate Favorable'
+                    return 'Favorable Intermediate'
                 else:
-                    return 'Intermediate Unfavorable'
+                    return 'Unfavorable Intermediate'
             else:
-                return 'Intermediate Unfavorable'
+                return 'Unfavorable Intermediate'
         elif Gleason == '3+4':
             if PSA < 10:
                 if (Stage == ''):
                     return OrgNCCN # 'Intermediate favorability indeterminate'
                 elif Stage in ['T1c','T2a','T1C','T2A']:
-                    return 'Intermediate Favorable'
+                    return 'Favorable Intermediate'
                 else:
-                    return 'Intermediate Unfavorable'
+                    return 'Unfavorable Intermediate'
             else:
-                return 'Intermediate Unfavorable'
-    '''
-    temp = output[(output.OrderStartDate>='2017-05-01') & (output.Test=='Prostate')]
-    temp['RevisedNCCN'] = temp.apply(lambda x : NCCN_Update(x['HCPProvidedGleasonScore'], x['HCPProvidedPSA'], x['HCPProvidedClinicalStage'], x['SFDCSubmittedNCCNRisk']), axis = 1)
-    output_file = 'Check_NCCN_Calculation.txt'
-    output_file_path = folder
-    temp.to_csv(output_file_path+output_file, sep='|',index=False)
-    '''
+                return 'Unfavorable Intermediate'
     ###
-    cond = (output.OrderStartDate>='2017-01-01') & (output.Test=='Prostate') & (output.SFDCSubmittedNCCNRisk == 'Intermediate Risk')
+    ### Do the calculation for Intermediate Risk Only
+    cond = (output.TestDeliveredDate>='2017-06-01') & (output.Test=='Prostate') & (output.SFDCSubmittedNCCNRisk == 'Intermediate Risk') &\
+           (~output['Revised SubmittedNCCNRisk'].isin(['Favorable Intermediate','Unfavorable Intermediate']))
     output.loc[cond ,'SubmittedNCCNRisk'] = output.loc[cond].apply(lambda x : NCCN_Update(x['HCPProvidedGleasonScore'], x['HCPProvidedPSA'], x['HCPProvidedClinicalStage'], x['SFDCSubmittedNCCNRisk']), axis = 1)
     
     #################################################
@@ -203,19 +222,6 @@ def OLI_detail(usage, folder, refresh=1, PayorHierarchy = 'At_OrderCapture'):
         select_column = prep_note[(prep_note['Claim2Rev'] == 1)]['Synonyms']
     elif usage == 'ClaimTicket':
         select_column = prep_note[(prep_note['ClaimTicket'] == 1)]['Synonyms']
-    '''   
-    elif usage == 'appeal':
-        select_column = prep_note[(prep_note.Claim_Appeal==1)]['Synonyms']
-    elif usage == 'Utilization':
-        select_column = prep_note[(prep_note['Utilization'] == 1)]['Synonyms']
-    elif usage == 'ClaimTicket_wCriteria':
-        select_column = prep_note[(prep_note['ClaimTicket_wCriteria'] == 1)]['Synonyms']
-    elif usage == 'Claim_Cycle':
-        select_column = prep_note[(prep_note['Claim_Cycle'] == 1)]['Synonyms']
-        return output[~(output.TestDeliveredDate.isnull())][select_column]
-    elif usage == 'OLI_Payment_Revenue':
-        select_column = prep_note[(prep_note['OLI_Payment_Revenue'] == 1)]['Synonyms']
-    '''
     return output[select_column]
 
 #################################################
