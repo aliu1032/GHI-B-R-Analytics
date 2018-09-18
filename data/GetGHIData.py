@@ -15,6 +15,7 @@ from openpyxl.styles.builtins import output
 import project_io_config as cfg
 server = cfg.GHI_DB_Server
 
+
 #prep_file_path = "C:\\Users\\aliu\\Box Sync\\aliu Cloud Drive\\workspace\\Supplement\\"
 #sql_folder = "C:\\Users\\aliu\\Box Sync\\aliu Cloud Drive\\workspace\\SQL\\"
  

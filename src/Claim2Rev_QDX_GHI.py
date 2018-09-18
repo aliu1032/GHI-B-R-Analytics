@@ -41,6 +41,7 @@ Jan 24 :: A known QDX bug with Roster billing, it creates multiple cases for an 
        :: reason for getting from QDX because the EDW Billing Case Status is from StageDB which is a few days old. The stale data cause issue with compare
        :: QDX appeal status
 '''
+
 import pandas as pd
 from datetime import datetime
 import time
