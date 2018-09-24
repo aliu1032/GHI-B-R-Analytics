@@ -950,6 +950,7 @@ Prostate_Appeals_Detail.columns = [['Tier1PayorID','Tier1PayorName','Tier2PayorI
 prep_file_name = "Payor-ViewSetAssignment.xlsx"
 Payor_view = pd.read_excel(cfg.prep_file_path+prep_file_name, sheet_name = "SetAssignment", usecols="B:D", encoding='utf-8-sig')
 
+
 for i in Payor_view.Set.unique() :
     #print (i)
     code = Payor_view[Payor_view.Set==i].PayorID

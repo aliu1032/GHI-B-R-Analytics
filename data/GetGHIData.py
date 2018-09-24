@@ -440,6 +440,7 @@ def getPayors (usage, folder, refresh = 1):
                      'Tier4Payor', 'Tier4PayorName',
                      'FinancialCategory','LineOfBenefit'
                     ]
+    
   
     return(output[select_column])
 

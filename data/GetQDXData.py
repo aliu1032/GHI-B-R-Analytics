@@ -8,6 +8,7 @@ Created on Sep 7, 2017
 - Sep 22 : adding the steps for preparing QDX claim and payment data
 '''
 
+
 import pyodbc
 import pandas as pd
 #import numpy as np
