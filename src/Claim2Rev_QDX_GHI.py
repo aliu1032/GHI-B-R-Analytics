@@ -120,7 +120,9 @@ temp2 = temp1.groupby(['OLIID']).agg({'TXNDate':'idxmax'}).TXNDate   # find the 
 Current_ticket = Claim_bill.loc[temp2][['OLIID','TicketNumber', 'CaseNumber',
                                         'BillingCaseStatusSummary1', 'BillingCaseStatusSummary2',
                                         'BillingCaseStatusCode', 'BillingCaseStatus',
-                                        'TicketInsPlan_QDXCode','TicketInsPlan_GHICode','OLIDOS', 'TXNDate']].copy()
+                                        'TicketInsPlan_QDXCode','TicketInsPlan_GHICode',
+                                        'PrimaryInsPlan_QDXCode', 'PrimaryInsPlan_GHICode',
+                                        'OLIDOS', 'TXNDate']].copy()
 
 Current_ticket.rename(columns = {'TicketNumber': 'CurrentQDXTicketNumber', 'OLIDOS':'QDX_DOS', 'TXNDate':'ClaimEntryDate'}, inplace=True)
 TickCnt = (pd.pivot_table(Claim_bill, index=['OLIID'], values = 'TicketNumber',\
@@ -143,12 +145,11 @@ Current_reference.loc[a,'CurrentQDXCaseNumber'] = Current_reference.loc[a,'maxCa
 Current_reference = Current_reference[['OLIID','CurrentQDXTicketNumber','QDXTickCnt','CurrentQDXCaseNumber','QDXCaseCnt',
                                        'BillingCaseStatusSummary1', 'BillingCaseStatusSummary2',
                                        'BillingCaseStatusCode', 'BillingCaseStatus',
-                                       'TicketInsPlan_QDXCode','TicketInsPlan_GHICode', 'QDX_DOS', 'ClaimEntryDate']]
+                                       'TicketInsPlan_QDXCode','TicketInsPlan_GHICode',
+                                       'PrimaryInsPlan_QDXCode', 'PrimaryInsPlan_GHICode',
+                                       'QDX_DOS', 'ClaimEntryDate']]
 
 OLI_data = pd.merge(OLI_data, Current_reference, how='left', on='OLIID')
-
-# change 'In' to 'in', make the data value consistent
-OLI_data.loc[OLI_data.BillingCaseStatusSummary2 == 'Claim In Process','BillingCaseStatusSummary2'] = 'Claim in Process'
 
 ## IsClaim is whether a TicketNumber is present
 OLI_data['IsClaim'] = 1
@@ -164,31 +165,40 @@ OLI_data.loc[OLI_data.BillingCaseStatusSummary2 == 'Completed', 'IsFullyAdjudica
 OLI_data.loc[(OLI_data.BillingCaseStatusSummary2 != 'Completed') & (~OLI_data.BillingCaseStatusSummary2.isna()), 'IsFullyAdjudicated'] = 0
 OLI_data.loc[OLI_data.BillingCaseStatusSummary2.isna(), 'IsFullyAdjudicated'] = ''
 
-## if Tier4PayorID is null, patch it with the Ticket payor Id from Quadax
-a = (OLI_data.IsClaim==1) & (OLI_data.Tier4PayorID.isnull())
-OLI_data.loc[a,'Tier4PayorID'] = OLI_data.loc[a,'TicketInsPlan_GHICode']
-####for Roster, QDX does not have an insurance code, have to think of a way to pull the AltPlan Code
-### this is for when BI process with unknown Tier4, and the script patch the QDX plan number to unknown
-
 # if DateOfService is null, update it using Quadax DOS collected with claim
 a = (OLI_data.DateOfService.isnull())
 OLI_data.loc[a, 'DateOfService'] = OLI_data.loc[a,'QDX_DOS']
 
 ## Managed Care needs the current Payor Hierarchy instead of the Payor Hierarchy as when a claim is processed.
-## Join on the Tier4PayorID
-OLI_data.rename(columns = {'Tier1Payor':'BI_Tier1Payor', 'Tier1PayorID':'BI_Tier1PayorID', 'Tier1PayorName': 'BI_Tier1Payor_Name',
-                           'Tier2Payor':'BI_Tier2Payor', 'Tier2PayorID':'BI_Tier2PayorID', 'Tier2PayorName': 'BI_Tier2Payor_Name',
-                           'Tier4Payor':'BI_Tier4Payor',  'Tier4PayorName': 'BI_Tier4Payor_Name'
-                           #'Tier4PayorID':'BI_Tier4PayorID',
-                           }, inplace=True)
+## therefore not getting the Payor Hierarchy from EDW; join the current SFDC Payor Hierarchy on Tier4PayorID
 
-OLI_data.Tier4PayorID = OLI_data.Tier4PayorID.str.strip()
 # Quadax Insurance Plan 6775 is mapped into 2 Tier4PayorID: PL0006511, PL0001459
-# PL0001459 is deleted in SFDC, reassign the OLI with Tier4PayorID = PL0001459 to the new ID PL0006511
-OLI_data.loc[OLI_data.Tier4PayorID=='PL0001459','Tier4PayorID'] = 'PL0006511'
+# PL0001459 is deleted in SFDC, thus cannot find the current Payor Hierarchy 
+# reassign the OLI with Tier4PayorID = PL0001459 to the new ID PL0006511
+OLI_data.loc[OLI_data.TicketInsPlan_GHICode=='PL0001459','TicketInsPlan_GHICode'] = 'PL0006511'
+OLI_data.loc[OLI_data.PrimaryInsPlan_GHICode=='PL0001459','PrimaryInsPlan_GHICode'] = 'PL0006511'
 
-OLI_data = pd.merge(OLI_data, SFDC_Payors, how='left', on='Tier4PayorID')
+select_columns = ['Tier1Payor', 'Tier1PayorName', 'Tier1PayorID',
+                   'Tier2Payor', 'Tier2PayorName', 'Tier2PayorID',
+                   'Tier4Payor', 'Tier4PayorName', 'Tier4PayorID',
+                   'FinancialCategory','LineOfBenefit']
+OLI_data = pd.merge(OLI_data, SFDC_Payors[select_columns], how='left', left_on='TicketInsPlan_GHICode', right_on='Tier4PayorID')
+OLI_data = pd.merge(OLI_data, SFDC_Payors[select_columns], how='left', left_on='PrimaryInsPlan_GHICode', right_on='Tier4PayorID')
 
+OLI_data.rename(columns = {'Tier1Payor_x':'Tier1Payor', 'Tier1PayorName_x':'Tier1PayorName', 'Tier1PayorID_x':'Tier1PayorID',
+                           'Tier2Payor_x':'Tier2Payor', 'Tier2PayorName_x':'Tier2PayorName', 'Tier2PayorID_x':'Tier2PayorID',
+                           'Tier4Payor_x':'Tier4Payor', 'Tier4PayorName_x':'Tier4PayorName', 'Tier4PayorID_x':'Tier4PayorID',
+                           'FinancialCategory_x':'FinancialCategory',
+                           'TicketInsPlan_QDXCode':'QDXInsPlanCode',
+                           'Tier1Payor_y':'PrimaryInsTier1Payor', 'Tier1PayorName_y':'PrimaryInsTier1PayorName', 'Tier1PayorID_y':'PrimaryInsTier1PayorID',
+                           'Tier2Payor_y':'PrimaryInsTier2Payor', 'Tier2PayorName_y':'PrimaryInsTier2PayorName', 'Tier2PayorID_y':'PrimaryInsTier2PayorID',
+                           'Tier4Payor_y':'PrimaryInsTier4Payor', 'Tier4PayorName_y':'PrimaryInsTier4PayorName', 'Tier4PayorID_y':'PrimaryInsTier4PayorID',
+                           'FinancialCategory_y':'PrimaryInsFC'}, inplace=True)
+
+OLI_data['Rerouted_Ticket'] = (OLI_data['Tier4PayorID'] == OLI_data['PrimaryInsTier4PayorID']).map({False:'Yes',True:'No'})
+OLI_data.loc[(OLI_data.Tier4PayorID.isnull() & OLI_data.PrimaryInsTier4PayorID.isnull()),'Rerouted_Ticket'] = 'No'  # NaN is not equal to NaN
+OLI_data['Reroute_ChangedFC'] = (OLI_data['FinancialCategory'] == OLI_data['PrimaryInsFC']).map({False:'Yes',True:'No'})  
+OLI_data.loc[(OLI_data.FinancialCategory.isnull() & OLI_data.PrimaryInsFC.isnull()),'Reroute_ChangedFC'] = 'No'  # NaN is not equal to NaN
 
 '''
 ## section to check the Current Case and CurrentTicket number mapping
@@ -505,7 +515,6 @@ x = pd.Series(OLI_data.CustomerStatus.unique())
 a = (OLI_data.TestDelivered==0) & (OLI_data.Status.isin(x[~x.isin(['Closed','Canceled'])]))
 OLI_data.loc[a,'Status Notes'] = OLI_data.loc[a,'DataEntryStatus']
 
-
 ############################################################### 
 # Create the Claim2Rev report                                 # 
 # Merging the GHI Revenue data to the QDX Claim record line   #
@@ -586,6 +595,7 @@ a = Claim2Rev.appealResult == 'In Process'
 b = Claim2Rev.BillingCaseStatusSummary2.isin(QDX_complete_appeal_status)
 Claim2Rev.loc[a & b, 'appealResult'] = 'Removed'
 Claim2Rev.loc[a & b, 'Removed'] = 1
+Claim2Rev.loc[a & b, 'In Process'] = 0
 
 # Scenario appeal case is open with the current ticket for the OLI, BillingCaseStatusSummary2 is not 'Appeal' and not in the completed status
 c = Claim2Rev.BillingCaseStatusSummary2 == 'Appeals'
@@ -728,6 +738,7 @@ for a in list(TXNCategory_dict.keys()):
 TXN_Detail.loc[TXN_Detail['TXNType'].isin(['Total Outstanding']),'TXNType'] = 'Outstanding'
 
 ## Adding the OLI detail, Keeping the Tier2PayorID for merging with the GNAM sets assignment
+## may need to add the PrimaryIns info - sep 20
 OLI_detail = OLI_data[['OLIID','Test','TestDeliveredDate'
                         ,'Tier1Payor','Tier1PayorID','Tier2Payor','Tier2PayorID','Tier4Payor','FinancialCategory','ReportingGroup'
                         , 'TerritoryRegion', 'OrderingHCPState']]
@@ -758,8 +769,14 @@ Claim2Rev_tableau = Claim2Rev[['OrderID', 'OLIID', 'Test',
         'Revenue', 'AccrualRevenue', 'CashRevenue',
         'USDRevenue', 'USDAccrualRevenue', 'USDCashRevenue', 
         
-        'Tier1Payor','Tier1PayorID', 'Tier2Payor','Tier2PayorID', 'Tier4Payor','Tier4PayorID','FinancialCategory',
-        'Tier1PayorName', 'Tier2PayorName', 'Tier4PayorName', 'QDXInsPlanCode',
+        'Tier1Payor','Tier1PayorID', 'Tier1PayorName', 
+        'Tier2Payor','Tier2PayorID', 'Tier2PayorName',
+        'Tier4Payor','Tier4PayorID', 'Tier4PayorName', 
+        'FinancialCategory', 'QDXInsPlanCode',
+        
+        'PrimaryInsTier1Payor', 'PrimaryInsTier1PayorID', 'PrimaryInsTier1PayorName',
+        'PrimaryInsTier2Payor', 'PrimaryInsTier2PayorID', 'PrimaryInsTier2PayorName', 
+        'PrimaryInsTier4Payor', 'PrimaryInsTier4PayorID', 'PrimaryInsTier4PayorName',  'PrimaryInsFC','PrimaryInsPlan_QDXCode',
             
         'Reportable', 'IsCharge', 'TestDelivered',
         'IsClaim', 'IsFullyAdjudicated',
@@ -782,8 +799,10 @@ Claim2Rev_tableau = Claim2Rev[['OrderID', 'OLIID', 'Test',
         
         'ReportingGroup','RecurrenceScore', 'Specialty',
         'RiskGroup', 'NodalStatus','EstimatedNCCNRisk', 'SubmittedNCCNRisk'
-        ]].copy()
         
+        , 'Rerouted_Ticket','Reroute_ChangedFC'
+        ]].copy()
+                
 #Export a dataset in excel for Jodi, includes Domestic Orders
 Claim2Rev_USD_excel = Claim2Rev[Claim2Rev.BusinessUnit == 'Domestic'][['OrderID',
         'OLIID', 'Test','OrderStartDate', 'TestDeliveredDate', 'CurrentQDXTicketNumber',
@@ -807,7 +826,11 @@ Claim2Rev_USD_excel = Claim2Rev[Claim2Rev.BusinessUnit == 'Domestic'][['OrderID'
         'Tier1PayorID','Tier1PayorName', 'Tier1Payor',
         'Tier2PayorID', 'Tier2Payor','Tier2PayorName',  
         'Tier4PayorID', 'Tier4Payor','Tier4PayorName',
-        'QDXInsPlanCode', 'LineOfBenefit', 'QDXInsFC', 'FinancialCategory',
+        'QDXInsPlanCode',  'FinancialCategory',
+        #'LineOfBenefit',
+        'PrimaryInsTier1Payor', 'PrimaryInsTier1PayorID', 'PrimaryInsTier1PayorName',
+        'PrimaryInsTier2Payor', 'PrimaryInsTier2PayorID', 'PrimaryInsTier2PayorName', 
+        'PrimaryInsTier4Payor', 'PrimaryInsTier4PayorID', 'PrimaryInsTier4PayorName',  'PrimaryInsFC',
                      
         'Status', #'Status Notes',
 
@@ -854,7 +877,11 @@ OLI_PTx = Claim2Rev[Claim2Rev.BusinessUnit == 'Domestic']\
         'Tier1PayorID','Tier1PayorName', 'Tier1Payor',
         'Tier2PayorID', 'Tier2Payor','Tier2PayorName',  
         'Tier4PayorID', 'Tier4Payor','Tier4PayorName',
-        'QDXInsPlanCode', 'LineOfBenefit', 'QDXInsFC', 'FinancialCategory',
+        'QDXInsPlanCode',  'FinancialCategory',
+#'LineOfBenefit',
+        'PrimaryInsTier1Payor', 'PrimaryInsTier1PayorID', 'PrimaryInsTier1PayorName',
+        'PrimaryInsTier2Payor', 'PrimaryInsTier2PayorID', 'PrimaryInsTier2PayorName', 
+        'PrimaryInsTier4Payor', 'PrimaryInsTier4PayorID', 'PrimaryInsTier4PayorName',  'PrimaryInsFC',
             
 #        'Reportable', 'IsCharge',
         'TestDelivered', 'IsClaim', 'IsFullyAdjudicated',

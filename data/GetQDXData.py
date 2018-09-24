@@ -365,8 +365,8 @@ def stdClaim(usage, folder, refresh=0):
     
     output.loc[output.BillingCaseStatusSummary2 == 'Claim In Process', 'BillingCaseStatusSummary2'] = 'Claim in Process'
 
-    # Find the Claim Ticket Payor from the ReRouted value suite. 
-    # if the ReRouted value is not available, read from the Primary value suite
+    # Find the Claim Ticket Payor from the ReRouted Insurance. 
+    # if the ReRouted values are not available, read from the Primary Insurance
     
     ticket_payor_map1 = {'TicketInsComp_QDXCode' : 'ReRoutedPrimaryInsComp_QDXCode'
                         , 'TicketInsPlan_QDXCode' : 'ReRoutedPrimaryInsPlan_QDXCode'
@@ -470,3 +470,32 @@ def priorAuth(usage, folder, refresh=0):
     
     output.priorAuthCaseNum = output.priorAuthCaseNum.astype(str)
     return(output)
+
+#################################################
+#   Read inscodes.txt Quadax Ins info           #
+#################################################
+def insCodes(usage, folder, refresh=0):
+    
+    print ("function : GetQDXData: insCodes :: start :: ",datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    print ('usage = ', usage,'\nrefresh = ', refresh, '\nfolder is ', folder, "\n\n")
+    
+    #database = 'Quadax'
+    target = server + '_' + database + '_' + 'insCodes.txt'
+    
+    f = open(cfg.sql_folder + 'QDX_insCodes.sql')
+    tsql = f.read()
+    f.close()
+
+    # Read data #
+    if refresh:        
+        cnxn = pyodbc.connect('Trusted_Connection=yes', DRIVER='{ODBC Driver 13 for SQL Server}',\
+                              SERVER=server,DATABASE=database)
+        output = pd.read_sql(tsql, cnxn)
+        output.to_csv(folder + target, sep='|', index=False)
+        cnxn.close()
+         
+    else:
+        output = pd.read_table(folder+target, sep="|" )
+    
+    return(output)
+

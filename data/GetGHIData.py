@@ -140,22 +140,25 @@ def OLI_detail(usage, folder, refresh=1, PayorHierarchy = 'At_OrderCapture'):
     #    T4 payor and not for self pay, roster,etc                                          #
     #  - Add on QDX FC to match QDX ASR; use the QDX FC to fill in missing FC in OLI file   #
     #########################################################################################
+    ## The payor fc in GHI system is blank when the GHI intergration program does not map the Quadax FC
     ## Read QDX Ins Plan Txt for Financial Category where GHI does not import the FC for the payor
+    '''    move this to getSFDCPayors
     inscode = pd.read_csv(cfg.prep_file_path+'insCodes.txt', sep="|", quoting=3, encoding='utf-8-sig', error_bad_lines=False) 
     inscode = inscode[~(inscode['insAltId'].isnull())][['insCode','insFC','insAltId']]
     inscode.rename(columns = {'insCode' : 'QDXInsCode', 'insFC':'QDXInsFC'}, inplace=True)
     ## need to check if the QDXinsPlanCode is matching the current Tier4Payor or the appealInsCode
     
-    ## add the QDX insFC to order_appeal_history
     output = pd.merge(output, inscode, how='left',\
                                     left_on=['Tier4PayorID'], right_on=['insAltId'])
     output = output.drop(['QDXInsCode','insAltId'],1)
-
+    '''
+    
     ## get the revised NCCN Risk Category for Prostate Intermediate Risk
     ## first fetch the information from Order Description
     ## patch it with the calculation
        
     output['SFDCSubmittedNCCNRisk'] = output['SubmittedNCCNRisk']
+    
     '''
     Calculate the NCCN refined Intermediate Favorable and UnFavorable Risk
     '''
@@ -309,6 +312,8 @@ def revenue_data(usage, folder, refresh=1):
     output.TicketNumber = output.TicketNumber.astype(float).astype(int).astype('str')
     output.TicketNumber = output.TicketNumber.replace('0',np.nan)  
 
+    ''' trace where Revenue Payor info is used possible ticket
+    '''
     ## Read QDX Ins Plan Txt for Financial Category where GHI does not import the FC for the payor
     inscode = pd.read_csv(cfg.prep_file_path+'insCodes.txt', sep="|", quoting=3, encoding='utf-8-sig', error_bad_lines=False) 
     inscode = inscode[~(inscode['insAltId'].isnull())][['insCode','insFC','insAltId']]
@@ -410,20 +415,30 @@ def getPayors (usage, folder, refresh = 1):
         f.close()
 
         output = pd.read_sql(tsql, cnxn)
-        output.to_csv(folder + target, sep='|', index=False)
+        output.to_csv(folder + target, sep='|', index=False)        
         
     else:
         output = pd.read_csv(folder + target, sep="|", encoding="ISO-8859-1")
-    
     
     output['Tier1Payor'] = output.Tier1PayorName + " (" + output.Tier1PayorID + ")"
     output['Tier2Payor'] = output.Tier2PayorName + " (" + output.Tier2PayorID + ")"
     output['Tier4Payor'] = output.Tier4PayorName + " (" + output.Tier4PayorID + ")"
 
+    ## Read QDX Ins Plan Txt for Financial Category where GHI does not import the FC for the payor
+    #yet to do
+    # also need to pull LineOfBenefit from SFDC
+    from data import GetQDXData
+    inscodes = GetQDXData.insCodes('',folder, refresh)
+     
+    output = pd.merge(output, inscodes, how='left', on='Tier4PayorID')
+    cond = output.FinancialCategory.isnull() & ~output.QDXInsFC.isnull()
+    output.loc[cond,'FinancialCategory'] = output.loc[cond,'QDXInsFC']   
+    
     select_column = ['Tier1Payor', 'Tier1PayorName', 'Tier1PayorID',
-                      'Tier2Payor', 'Tier2PayorName', 'Tier2PayorID',
-                      'Tier4PayorID',
-                      'Tier4Payor', 'Tier4PayorName', 
+                     'Tier2Payor', 'Tier2PayorName', 'Tier2PayorID',
+                     'Tier4PayorID',
+                     'Tier4Payor', 'Tier4PayorName',
+                     'FinancialCategory','LineOfBenefit'
                     ]
   
     return(output[select_column])
