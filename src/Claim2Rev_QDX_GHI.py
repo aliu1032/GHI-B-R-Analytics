@@ -193,12 +193,12 @@ OLI_data.rename(columns = {'Tier1Payor_x':'Tier1Payor', 'Tier1PayorName_x':'Tier
                            'Tier1Payor_y':'PrimaryInsTier1Payor', 'Tier1PayorName_y':'PrimaryInsTier1PayorName', 'Tier1PayorID_y':'PrimaryInsTier1PayorID',
                            'Tier2Payor_y':'PrimaryInsTier2Payor', 'Tier2PayorName_y':'PrimaryInsTier2PayorName', 'Tier2PayorID_y':'PrimaryInsTier2PayorID',
                            'Tier4Payor_y':'PrimaryInsTier4Payor', 'Tier4PayorName_y':'PrimaryInsTier4PayorName', 'Tier4PayorID_y':'PrimaryInsTier4PayorID',
-                           'FinancialCategory_y':'PrimaryInsFC'}, inplace=True)
+                           'FinancialCategory_y':'PrimaryInsFinancialCategory'}, inplace=True)
 
 OLI_data['Rerouted_Ticket'] = (OLI_data['Tier4PayorID'] == OLI_data['PrimaryInsTier4PayorID']).map({False:'Yes',True:'No'})
 OLI_data.loc[(OLI_data.Tier4PayorID.isnull() & OLI_data.PrimaryInsTier4PayorID.isnull()),'Rerouted_Ticket'] = 'No'  # NaN is not equal to NaN
-OLI_data['Reroute_ChangedFC'] = (OLI_data['FinancialCategory'] == OLI_data['PrimaryInsFC']).map({False:'Yes',True:'No'})  
-OLI_data.loc[(OLI_data.FinancialCategory.isnull() & OLI_data.PrimaryInsFC.isnull()),'Reroute_ChangedFC'] = 'No'  # NaN is not equal to NaN
+OLI_data['Reroute_ChangedFC'] = (OLI_data['FinancialCategory'] == OLI_data['PrimaryInsFinancialCategory']).map({False:'Yes',True:'No'})  
+OLI_data.loc[(OLI_data.FinancialCategory.isnull() & OLI_data.PrimaryInsFinancialCategory.isnull()),'Reroute_ChangedFC'] = 'No'  # NaN is not equal to NaN
 
 '''
 ## section to check the Current Case and CurrentTicket number mapping
@@ -776,7 +776,7 @@ Claim2Rev_tableau = Claim2Rev[['OrderID', 'OLIID', 'Test',
         
         'PrimaryInsTier1Payor', 'PrimaryInsTier1PayorID', 'PrimaryInsTier1PayorName',
         'PrimaryInsTier2Payor', 'PrimaryInsTier2PayorID', 'PrimaryInsTier2PayorName', 
-        'PrimaryInsTier4Payor', 'PrimaryInsTier4PayorID', 'PrimaryInsTier4PayorName',  'PrimaryInsFC','PrimaryInsPlan_QDXCode',
+        'PrimaryInsTier4Payor', 'PrimaryInsTier4PayorID', 'PrimaryInsTier4PayorName',  'PrimaryInsFinancialCategory','PrimaryInsPlan_QDXCode',
             
         'Reportable', 'IsCharge', 'TestDelivered',
         'IsClaim', 'IsFullyAdjudicated',
@@ -830,7 +830,7 @@ Claim2Rev_USD_excel = Claim2Rev[Claim2Rev.BusinessUnit == 'Domestic'][['OrderID'
         #'LineOfBenefit',
         'PrimaryInsTier1Payor', 'PrimaryInsTier1PayorID', 'PrimaryInsTier1PayorName',
         'PrimaryInsTier2Payor', 'PrimaryInsTier2PayorID', 'PrimaryInsTier2PayorName', 
-        'PrimaryInsTier4Payor', 'PrimaryInsTier4PayorID', 'PrimaryInsTier4PayorName',  'PrimaryInsFC',
+        'PrimaryInsTier4Payor', 'PrimaryInsTier4PayorID', 'PrimaryInsTier4PayorName',  'PrimaryInsFinancialCategory',
                      
         'Status', #'Status Notes',
 
@@ -881,7 +881,7 @@ OLI_PTx = Claim2Rev[Claim2Rev.BusinessUnit == 'Domestic']\
 #'LineOfBenefit',
         'PrimaryInsTier1Payor', 'PrimaryInsTier1PayorID', 'PrimaryInsTier1PayorName',
         'PrimaryInsTier2Payor', 'PrimaryInsTier2PayorID', 'PrimaryInsTier2PayorName', 
-        'PrimaryInsTier4Payor', 'PrimaryInsTier4PayorID', 'PrimaryInsTier4PayorName',  'PrimaryInsFC',
+        'PrimaryInsTier4Payor', 'PrimaryInsTier4PayorID', 'PrimaryInsTier4PayorName',  'PrimaryInsFinancialCategory',
             
 #        'Reportable', 'IsCharge',
         'TestDelivered', 'IsClaim', 'IsFullyAdjudicated',
@@ -950,7 +950,6 @@ Prostate_Appeals_Detail.columns = [['Tier1PayorID','Tier1PayorName','Tier2PayorI
 prep_file_name = "Payor-ViewSetAssignment.xlsx"
 Payor_view = pd.read_excel(cfg.prep_file_path+prep_file_name, sheet_name = "SetAssignment", usecols="B:D", encoding='utf-8-sig')
 
-
 for i in Payor_view.Set.unique() :
     #print (i)
     code = Payor_view[Payor_view.Set==i].PayorID
@@ -959,6 +958,16 @@ for i in Payor_view.Set.unique() :
     Claim2Rev_tableau.loc[Claim2Rev_tableau[join_column].isin(list(code)),i] = '1'
     Claim2Rev.loc[Claim2Rev_tableau[join_column].isin(list(code)),i] = '1'
     TXN_Detail.loc[TXN_Detail[join_column].isin(list(code)),i] = '1'
+    
+### need to create PrimaryInsSet
+for i in Payor_view.Set.unique():
+    code = Payor_view[Payor_view.Set==i].PayorID
+    join_column = Payor_view[Payor_view.Set==i].JoinWith.iloc[0] ## JoinWith PrimaryInsTier2PayorID, ##PrimaryInsTier1PayorID, PrimaryInsFinancialCategory
+    
+    mapping = {'Tier2PayorID':'PrimaryInsTier2PayorID', 'Tier1PayorID':'PrimaryInsTier1PayorID', 'FinancialCategory':'PrimaryInsFinancialCategory'}
+    primaryins_set = 'PrimaryIns' + '_' + i
+    
+    Claim2Rev_tableau.loc[Claim2Rev_tableau[mapping[join_column]].isin(list(code)),primaryins_set] = '1'
 
 #Claim2Rev_tableau.drop(['Tier2PayorID', 'Tier1PayorID'], axis=1, inplace=True)
 # repeat columns for Tableau color purpose
@@ -976,7 +985,6 @@ for i in dup:
 print ('Claim2Rev_QDX_GHI :: write OLITXT_Detail', len(TXN_Detail), 'rows :: start ::', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 output_file = 'OLI_TXN_Detail.txt'
 TXN_Detail.to_csv(cfg.output_file_path+output_file, sep='|',index=False)
-
 
 print ('Claim2Rev_QDX_GHI :: write Claim2Rev_4_Tableau report ', len(Claim2Rev_tableau), 'rows :: start ::', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 output_file = 'Claim2Rev_4_Tableau.txt'
@@ -1011,8 +1019,6 @@ writer.close()
 print ('Claim2Rev_QDX_GHI :: write Claim2Rev output for Payment Assessment ', len(OLI_PTx), 'rows :: start ::', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 output_file = 'OLI_PTx.txt'
 OLI_PTx.to_csv(cfg.output_file_path+output_file, sep='|',index=False)
-
-
 
 #PreClaim Status for Ron's
 Cond = (Claim2Rev.BusinessUnit == 'Domestic') & \
