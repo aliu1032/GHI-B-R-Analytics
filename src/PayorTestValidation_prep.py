@@ -7,7 +7,7 @@ import project_io_config as cfg
 
 pd.options.display.max_columns=999
 print ('PayorTestValidation :: start :: ',datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-
+cfg.refresh=1
 PTV = GData.getPTV('', cfg.input_file_path, cfg.refresh)
 
 PA_enum = pd.read_excel(cfg.prep_file_path+'Enum.xlsx', sheet_name = "PA_ENUM", encoding='utf-8-sig', usecols="A:C,E:F")
@@ -28,7 +28,7 @@ for i in build:
                        'Tier4PayorID', 'Tier4Payor', 'QDX_InsPlan_Code', 'Line_of_Benefits',
                        'Test', 'OSM_Effective_Start_Date__c', 'OSM_Effective_End_Date__c', 'Billing_Modifier',
                        'OSM_Prior_Authorization__c', 'GHI_PayorSOMNTemplate__c',
-                       'OSM_PA_Required__c', 'GHI_PhysicianAlertRequired__c',
+                       'PA_Required', 'GHI_PhysicianAlertRequired__c',
                        'No CVP (no PA)', 'Pre-DOS', 'Post-DOS','Must obtain PA before releasing report',
                        'Ordering Physician initiates PA', 'GHI initiates PA',
                        'Payor specific PA form','Payor specific SOMN Form','SOMN','Signature required on SOMN',

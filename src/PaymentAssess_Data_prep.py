@@ -56,12 +56,18 @@ select_columns = [
  'MultiplePrimaries',
  'IBC_TumorSizeCentimeters',
  'SubmittedNCCNRisk', 'SFDCSubmittedNCCNRisk',
+ 
+ 'BillingCaseStatusSummary2', 'BillingCaseStatus',
+ 'PreClaim_Failure'
  ]
 
 OLI_data = Claim2Rev[(Claim2Rev.Test=='IBC') &\
                      ~(Claim2Rev.CurrentQDXTicketNumber.isnull()) &\
-                     (Claim2Rev.TestDeliveredDate >=' 2018-04-01') & (Claim2Rev.OrderStartDate <= '2018-08-31')][select_columns].copy()
+                     (Claim2Rev.OrderStartDate >=' 2017-01-01')][select_columns].copy()
 
+#######################################
+# Standarized OLI Clinical Criteria   #
+#######################################
 OLI_data.loc[OLI_data.NodalStatus == 'Node Negative','NodalStatus'] = 'Node Negative (pN0)'
 OLI_data.loc[OLI_data.NodalStatus == 'Micromets (pN1mi: 0.2 - 2.0mm)','NodalStatus'] = 'Micromets (pN1mi: 0.2 2.0mm)'
 OLI_data.loc[OLI_data.ProcedureType == 'Non-Biopsy','ProcedureType'] = 'Non Biopsy'
@@ -139,21 +145,11 @@ for i in select_columns[3:]:
 CT_PTC_data.rename(columns={'Name':'CT_PTC'}, inplace=True)
 CT_PTC_data.rename(columns=new_names, inplace=True)
 
-# PTC Multi Tumor = Yes; No
-# Select 'Yes' when payor covers multi tumor; 'No' is selected with payor does not cover multi tumor
-# is blank when we do not know whether payor covers multi tumor
-# Insert to PTC Multiple Primaries = No
-### still issue here
-#a = (MP_PTC_data.MP_GHI_MultiTumor__c.isna())
-#PTC_data.loc[~a,'GHI_MultiTumor__c'].apply(lambda x : x.append('No'))
-#PTC_data.loc[~a,'GHI_MultiTumor__c']
-
-
 ########################################################
 # Read and prepare the Plans' PTV information
 ########################################################
 
-select_columns = ['Name','Test','Tier4PayorID','OSM_PA_Required__c', 'SOMN']
+select_columns = ['Name','Test','Tier4PayorID','PA_Required']
 PTV_data = PTV[~(PTV.Tier4PayorID.isnull())][select_columns]
 PTV_data.rename(columns = {'Name':'PTV'}, inplace=True)
 
@@ -176,11 +172,15 @@ Data.loc[Data.PTV.isnull(),'PTV_Available'] = 'No'
 ####################################################################
 # Calculate IN/OUT criteria            
 # Algorithm 1:
-# If Plan does not have a PTC, set to 'Out'
-# If PTC Clinical Value is null, then bypass the comparison
-#    Else if PTC Clinical value is not null
-#          If OLI has the value, then compare
-#          Else if OLI does not have the value, OUT
+# For each clinical criteria
+# If Patient's clinical criteria is available
+#      check with Payor's PTC
+#      OLI is covered if Payor PTC has the patient's clinical criteria; else OLI is not covered
+#      By pass the check if Payor does not have the PTC
+#      
+# If Patient's clinical criteria is unavailable
+#      If Payor has a PTC, then the OLI is not covered since we cannot provide the 'required' information
+#      If Payor does not have a PTC, then by pass the check
 ####################################################################
 IBC_compare = { 'NodalStatus' : 'MP_GHI_NodeStatus__c',
                 'HCPProvidedClinicalStage' : 'MP_GHI_Stage__c',
@@ -190,6 +190,7 @@ IBC_compare = { 'NodalStatus' : 'MP_GHI_NodeStatus__c',
                 'HormoneReceptorHR' : 'MP_GHI_HormoneReceptorHR__c',
                 'PatientAgeAtDiagnosis' : 'MP_GHI_AgeAtDiagnosisRange__c',
                 'ProcedureType' :  'MP_GHI_ProcedureType__c',
+#                'PreClaim_Failure' : 'PA_Required',
                 'MultiplePrimaries' : 'MP_GHI_MultiTumor__c'
                 }
 
@@ -198,31 +199,67 @@ for i in list(IBC_compare.keys()):
     Data[IBC_compare[i]] = Data[IBC_compare[i]].fillna("")
     Data[IBC_compare[i]] = Data[IBC_compare[i]].apply(lambda x : x.split(sep=";") if x else '')
 
+Data['PreClaim_Failure'] = Data['PreClaim_Failure'].fillna("Unknown") 
+Data['PA_Required'] = Data['PA_Required'].fillna('.PTV unknown')
+
 def In_or_Out_1 (record):
     InCriteria_1_temp = [] 
-    for i in list(IBC_compare.keys())[:-1]:
+    for i in list(IBC_compare.keys())[:-1]:  # exclude comparing Multiple Primaries 
         #print ('OLI: ', record[i], ' vs ', record[IBC_compare[i]])
         comparing = IBC_compare[i][:-3] + '_coverage'
+        
         if (record[i] != '') and (record[i] != 'Unknown'):  # Patient clinical criteria is captured in OLI, then compare
             if (type(record[IBC_compare[i]]) == list):   # PTC clinical criteria is entered
                 InCriteria_1_temp.append((record[i] in record[IBC_compare[i]]))
-                record[comparing] = 'Yes' if (record[i] in record[IBC_compare[i]]) else 'No'
+                record[comparing] = 'In' if (record[i] in record[IBC_compare[i]]) else 'Out'
             else:
-                record[comparing] = '.PTC unknown'
+                record[comparing] = '.PTC unknown'  #Check to confirm this can be set to 'In'
                 # by pass when PTC clinical criteria is not entered
-        else:
-            InCriteria_1_temp.append(0)          # Patient clinical criteria is not captured in OLI, set to 'Out' as no information to compare
-            record[comparing] = '.Patient unknown'
+                
+        else:                               # Patient clinical criteria is unavailable
+            if (type(record[IBC_compare[i]]) == list):   # PTC clinical criteria is entered
+                InCriteria_1_temp.append(0)          # Patient clinical criteria is not captured in OLI, set to 'Out' as no information to compare
+                record[comparing] = 'Out'
+            else:
+                record[comparing] = '.Patient & PTC unknown'
+                # by pass when both patient & ptc have no information
 
-    # evaluate multi tumor coverage, only evaluate for multi tumor OLI
+    # evaluate multi tumor coverage, only evaluate OLI which multi tumor = Yes. All IBC OLIs either Yes or No multiple primaries
+    # PTC Multi Tumor = Yes; No
+    # when 'Yes' is selected, it means the payer covers multi tumor; 'No' is selected means the payer does not cover multi tumor
+    # PTC multi tumor is blank when we do not know whether payor covers multi tumor
+    # all payers cover OLI with multi tumor = No
     comparing = 'MP_GHI_MultiTumor_coverage'
     if record['MultiplePrimaries'] == 'Yes':
         if (type(record[IBC_compare[i]]) == list):
-            record[comparing] = 'Yes' if (record['MultiplePrimaries'] in record['MP_GHI_MultiTumor__c']) else 'No'
+            record[comparing] = 'In' if (record['MultiplePrimaries'] in record['MP_GHI_MultiTumor__c']) else 'Out'
             InCriteria_1_temp.append((record['MultiplePrimaries'] in record['MP_GHI_MultiTumor__c']))
         else:
             record[comparing] = '.PTC unknown'
+    else: # OLI Multiple Primaries = No
+        record[comparing] = 'In'
+        
+    # compare PTV.OSM_PA_Required__c.unique() with PreClaim_Failure
+    # for PA_Required = True and PreClaim_Failure = 'Non Failure' then IN
+    # PA_Required = True and PreClaim_Failure = 'Failure' or = blank, then OUT
+    # for PA_Required = False, then does not matter what is PreClaim_Failure
+    comparing = 'PA_requirement'
     
+    if record['PA_Required'] == 'No':
+        record[comparing] = 'In'
+        InCriteria_1_temp.append(1)
+    elif record['PA_Required'] == 'Yes': # Payer requires PA
+        record[comparing] = 'In' if (record['PreClaim_Failure'] == 'Non Failure') else 'Out'
+        InCriteria_1_temp.append(1 if (record['PreClaim_Failure'] == 'Non Failure') else 0)
+    else:
+        if record['PreClaim_Failure'] == 'Non Failure':
+            record[comparing] = 'In'
+            InCriteria_1_temp.append(1)
+        elif record['PreClaim_Failure'] == 'Failure':
+            record[comparing] = '.PTV unknown'
+        else:
+            record[comparing] = '.PA & PTV unknown'
+
     # len(InCriteria_1_temp) is 0 when the Plan has no PTC
     # 0 in InCriteria_1_temp)) when at least 1 of the criteria is out
     if ((len(InCriteria_1_temp) == 0) or (0 in InCriteria_1_temp)):
@@ -233,7 +270,6 @@ def In_or_Out_1 (record):
     return(record)
 
 Data = Data.apply(lambda x: In_or_Out_1(x), axis=1)
-
 
 ####################################################################
 # Write the output

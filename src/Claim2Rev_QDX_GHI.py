@@ -774,6 +774,7 @@ Claim2Rev_tableau = Claim2Rev[['OrderID', 'OLIID', 'Test',
         'Tier4Payor','Tier4PayorID', 'Tier4PayorName', 
         'FinancialCategory', 'QDXInsPlanCode',
         
+        # PrimaryIns for Appeal Report
         'PrimaryInsTier1Payor', 'PrimaryInsTier1PayorID', 'PrimaryInsTier1PayorName',
         'PrimaryInsTier2Payor', 'PrimaryInsTier2PayorID', 'PrimaryInsTier2PayorName', 
         'PrimaryInsTier4Payor', 'PrimaryInsTier4PayorID', 'PrimaryInsTier4PayorName',  'PrimaryInsFinancialCategory','PrimaryInsPlan_QDXCode',
@@ -859,9 +860,10 @@ Claim2Rev_USD_excel = Claim2Rev[Claim2Rev.BusinessUnit == 'Domestic'][['OrderID'
 
 OLI_PTx = Claim2Rev[Claim2Rev.BusinessUnit == 'Domestic']\
         [['OrderID', 'OLIID', 'Test', 
-        'TestDeliveredDate', 'CurrentQDXTicketNumber','QDXTickCnt','QDXCaseCnt',
+        'TestDeliveredDate', 'CurrentQDXTicketNumber',
+#        'QDXTickCnt','QDXCaseCnt',
         'BillingCaseStatusSummary2', 'BillingCaseStatusCode', 'BillingCaseStatus','Orig_BillingCaseStatus',
-        'BilledCurrency', 'ListPrice', 'ContractedPrice', 'Total Outstanding',
+#        'BilledCurrency', 'ListPrice', 'ContractedPrice', 'Total Outstanding',
         'Total Billed', 'Charge',
 
 #        'ClmAmtRec', 
@@ -869,19 +871,19 @@ OLI_PTx = Claim2Rev[Claim2Rev.BusinessUnit == 'Domestic']\
         'PayorPaid','PatientPaid',
 
 #        'ClmAmtAdj', 'stdP_ClmAmtAdj',
-        'Total Adjustment'
+#        'Total Adjustment'
         ] + list(Adj_code.groupby('AdjustmentGroup').groups.keys()) + [
  
-        'AllowedAmt',
+ #       'AllowedAmt',
                 
         'Tier1PayorID','Tier1PayorName', 'Tier1Payor',
         'Tier2PayorID', 'Tier2Payor','Tier2PayorName',  
         'Tier4PayorID', 'Tier4Payor','Tier4PayorName',
         'QDXInsPlanCode',  'FinancialCategory',
 #'LineOfBenefit',
-        'PrimaryInsTier1Payor', 'PrimaryInsTier1PayorID', 'PrimaryInsTier1PayorName',
-        'PrimaryInsTier2Payor', 'PrimaryInsTier2PayorID', 'PrimaryInsTier2PayorName', 
-        'PrimaryInsTier4Payor', 'PrimaryInsTier4PayorID', 'PrimaryInsTier4PayorName',  'PrimaryInsFinancialCategory',
+#        'PrimaryInsTier1Payor', 'PrimaryInsTier1PayorID', 'PrimaryInsTier1PayorName',
+#        'PrimaryInsTier2Payor', 'PrimaryInsTier2PayorID', 'PrimaryInsTier2PayorName', 
+#        'PrimaryInsTier4Payor', 'PrimaryInsTier4PayorID', 'PrimaryInsTier4PayorName',  'PrimaryInsFinancialCategory',
             
 #        'Reportable', 'IsCharge',
         'TestDelivered', 'IsClaim', 'IsFullyAdjudicated',
@@ -902,6 +904,8 @@ OLI_PTx = Claim2Rev[Claim2Rev.BusinessUnit == 'Domestic']\
         'RecurrenceScore','HER2GeneScore','ERGeneScore','PRGeneScore','DCISScore',
         'HCPProvidedGleasonScore','HCPProvidedPSA',
         'EstimatedNCCNRisk', 'SubmittedNCCNRisk', 'SFDCSubmittedNCCNRisk','FavorablePathologyComparison',
+        
+        'priorAuthResult','priorAuthResult_Category','priorAuthNumber', 'PreClaim_Failure'
         ]]
 
 #Extract data set of IBC Appeals Detail 
@@ -994,6 +998,11 @@ print ('Claim2Rev_QDX_GHI :: write Claim2Rev report ', len(Claim2Rev), 'rows :: 
 output_file = 'Claim2Rev.txt'
 Claim2Rev.to_csv(cfg.output_file_path+output_file, sep='|',index=False)
 
+print ('Claim2Rev_QDX_GHI :: write Claim2Rev output for Payment Assessment ', len(OLI_PTx), 'rows :: start ::', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+output_file = 'OLI_PTx.txt'
+OLI_PTx.to_csv(cfg.output_file_path+output_file, sep='|',index=False)
+
+
 print ('Claim2Rev_QDX_GHI :: write Claim2Rev USD xlsx report ', len(Claim2Rev_USD_excel), 'rows :: start ::', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 output_file = 'Claim2Rev_USD.xlsx'
 writer = pd.ExcelWriter(cfg.output_file_path+output_file, engine='openpyxl', date_format='yyyy/mm/dd')
@@ -1015,10 +1024,6 @@ writer = pd.ExcelWriter(cfg.output_file_path+output_file, engine='openpyxl', dat
 Prostate_Appeals_Detail.to_excel(writer, index = False)
 writer.save()
 writer.close()
-
-print ('Claim2Rev_QDX_GHI :: write Claim2Rev output for Payment Assessment ', len(OLI_PTx), 'rows :: start ::', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-output_file = 'OLI_PTx.txt'
-OLI_PTx.to_csv(cfg.output_file_path+output_file, sep='|',index=False)
 
 #PreClaim Status for Ron's
 Cond = (Claim2Rev.BusinessUnit == 'Domestic') & \
