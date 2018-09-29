@@ -79,6 +79,25 @@ OLI_data['MultiplePrimaries'] = OLI_data['MultiplePrimaries'].map({0:'No',1:'Yes
 OLI_data['PatientAgeAtDiagnosis_int'] = OLI_data['PatientAgeAtDiagnosis']
 OLI_data['PatientAgeAtDiagnosis'] = (OLI_data.PatientAgeAtDiagnosis >= 50).map({True:'>= 50', False: '< 50'})
 
+OLI_data.loc[OLI_data.IBC_TumorSizeCentimeters.isna(),'TumorSize'] = 'Unknown'
+cond = (~OLI_data.IBC_TumorSizeCentimeters.isna()) &\
+       (OLI_data.IBC_TumorSizeCentimeters <= 0.5)
+OLI_data.loc[cond,'TumorSize'] = 'Size <= 0.5 cm'
+cond = (~OLI_data.IBC_TumorSizeCentimeters.isna()) &\
+       (OLI_data.IBC_TumorSizeCentimeters > 0.5) &\
+       (OLI_data.IBC_TumorSizeCentimeters < 0.6)
+OLI_data.loc[cond,'TumorSize'] = '0.5 < Size < 0.6 cm'
+cond = (~OLI_data.IBC_TumorSizeCentimeters.isna()) &\
+       (OLI_data.IBC_TumorSizeCentimeters >= 0.6) &\
+       (OLI_data.IBC_TumorSizeCentimeters <= 1.0)
+OLI_data.loc[cond,'TumorSize'] = '0.6 <= Size <= 1.0 cm'
+cond = (~OLI_data.IBC_TumorSizeCentimeters.isna()) &\
+       (OLI_data.IBC_TumorSizeCentimeters > 1.0) &\
+       (OLI_data.IBC_TumorSizeCentimeters <= 5.0) 
+OLI_data.loc[cond,'TumorSize'] = '1.0 < Size <= 5.0 cm'
+cond = (~OLI_data.IBC_TumorSizeCentimeters.isna()) &\
+       (OLI_data.IBC_TumorSizeCentimeters > 5.0)
+OLI_data.loc[cond,'TumorSize'] = 'Size > 5.0 cm'       
 '''
 Example: OR001072184 : Multi Tumor order
 OL001094259 has a claim
