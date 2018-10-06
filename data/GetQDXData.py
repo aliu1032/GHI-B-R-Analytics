@@ -92,7 +92,7 @@ def complete_appeal_case(folder, refresh=1):
     ##############################
     output.appealCaseNum = output.appealCaseNum.astype(str)
     output.appealTickNum = output.appealTickNum.astype(str)
-    QDX_GHI_Test_Code = {'GL':'IBC','GLD':'DCIS','GLC':'Colon','MMR':'MMR','GLP':'Prostate','UNK':'Unknown'}
+    QDX_GHI_Test_Code = {'GL':'IBC','GLD':'DCIS','GLC':'Colon','MMR':'MMR','GLP':'Prostate','UNK':'Unknown','ARV7': 'Prostate-AR-V7'}
     
     for test in list(QDX_GHI_Test_Code.keys()):
         temp = output[(output['appealPH'] == test)].index
@@ -221,7 +221,7 @@ def stdPayment(usage, folder, refresh=0):
     
     
     # Translate into GHI Test Codes
-    QDX_GHI_Test_Code = {'GL':'IBC','GLD':'DCIS','GLC':'Colon','MMR':'MMR','GLP':'Prostate','UNK':'Unknown'}
+    QDX_GHI_Test_Code = {'GL':'IBC','GLD':'DCIS','GLC':'Colon','MMR':'MMR','GLP':'Prostate','UNK':'Unknown','ARV7': 'Prostate-AR-V7'}
     for test in list(QDX_GHI_Test_Code.keys()):
         temp = output[(output['Test'] == test)].index
         #output.set_value(temp, 'Test', QDX_GHI_Test_Code[test])
@@ -348,7 +348,7 @@ def stdClaim(usage, folder, refresh=0):
     
     ## may need to convert the amount to float before returning when reading from database
 
-    QDX_GHI_Test_Code = {'GL':'IBC','GLD':'DCIS','GLC':'Colon','MMR':'MMR','GLP':'Prostate','UNK':'Unknown'}
+    QDX_GHI_Test_Code = {'GL':'IBC','GLD':'DCIS','GLC':'Colon','MMR':'MMR','GLP':'Prostate','UNK':'Unknown','ARV7': 'Prostate-AR-V7'}
     for test in list(QDX_GHI_Test_Code.keys()):
         temp = output[(output['Test'] == test)].index
         #output.set_value(temp, 'Test', QDX_GHI_Test_Code[test])

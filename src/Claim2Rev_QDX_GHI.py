@@ -22,24 +22,9 @@ Constraints:
 4. NetSuite export monthly data to EDW. If there are multiple adjustments for an OLI happened in the same month, NS sum the monthly number and assign 
    it with the adjustment code of the last TXN line.
 5. IT provides access to Stage StagingDB which is a few days older than the Quadax data feed.
-   Thus use Quadax data for Claim, Payment, Adjustment, Ticket and Case for a more update data.
-   For OLI data, use EDWDB in StagingDB.
+   Thus use Quadax data for Claim, Payment, Adjustment, Ticket, Case for a more update data.
+   For OLI data, use EDWDB in StagingDB. Only taking OLI and patient clinical data from EDWDB 
    
-Oct 18: 
-Switch Revenue data source from StagingDB.Analytics.mvwRevenue to EDWDB.dbo.fctRevenue to get the IsRevenueReconciliationAdjustment flag
-Exclude the IsRevenueReconciliationAdjustment from Claim2Rev analysis
-Nov 27: adding appeal case, history & result to OLI
-Dec 15: taking Billing Case status from QDX file, because the StagingDB is a few days older, make it harder to reconcile with the appeal status 
-to determine the billing case status
-Jan 22: update the calculation reconciliation logic
-Jan 22 :: Workaround BI does not always have the right current ticket number;
-          Derive the current ticket from stdClaim. This table has all the tickets issued by Quadax. Group rows by caseAccession ,
-          the current ticket number is the one with the latest TXNDate
-Jan 24 :: A known QDX bug with Roster billing, it creates multiple cases for an OLI
-       :: workaround by derive the current case number from QDX Case, group by caseAccession and pick the case with the latest caseAddedDateTime
-       :: and get the QDX billing case status from the QDX Case file
-       :: reason for getting from QDX because the EDW Billing Case Status is from StageDB which is a few days old. The stale data cause issue with compare
-       :: QDX appeal status
 '''
 
 import pandas as pd
@@ -169,11 +154,11 @@ OLI_data.loc[OLI_data.BillingCaseStatusSummary2.isna(), 'IsFullyAdjudicated'] = 
 a = (OLI_data.DateOfService.isnull())
 OLI_data.loc[a, 'DateOfService'] = OLI_data.loc[a,'QDX_DOS']
 
-## Managed Care needs the current Payor Hierarchy instead of the Payor Hierarchy as when a claim is processed.
-## therefore not getting the Payor Hierarchy from EDW; join the current SFDC Payor Hierarchy on Tier4PayorID
+## Managed Care needs the current Payer Hierarchy instead of the Payer Hierarchy as when a claim is processed.
+## therefore not getting the Payer Hierarchy from EDW; join the current SFDC Payer Hierarchy on Tier4PayorID
 
 # Quadax Insurance Plan 6775 is mapped into 2 Tier4PayorID: PL0006511, PL0001459
-# PL0001459 is deleted in SFDC, thus cannot find the current Payor Hierarchy 
+# PL0001459 is deleted in SFDC, thus cannot find the current Payer Hierarchy 
 # reassign the OLI with Tier4PayorID = PL0001459 to the new ID PL0006511
 OLI_data.loc[OLI_data.TicketInsPlan_GHICode=='PL0001459','TicketInsPlan_GHICode'] = 'PL0006511'
 OLI_data.loc[OLI_data.PrimaryInsPlan_GHICode=='PL0001459','PrimaryInsPlan_GHICode'] = 'PL0006511'
@@ -189,14 +174,16 @@ OLI_data.rename(columns = {'Tier1Payor_x':'Tier1Payor', 'Tier1PayorName_x':'Tier
                            'Tier2Payor_x':'Tier2Payor', 'Tier2PayorName_x':'Tier2PayorName', 'Tier2PayorID_x':'Tier2PayorID',
                            'Tier4Payor_x':'Tier4Payor', 'Tier4PayorName_x':'Tier4PayorName', 'Tier4PayorID_x':'Tier4PayorID',
                            'FinancialCategory_x':'FinancialCategory',
+                           'LineOfBenefit_x':'LineOfBenefit',
                            'TicketInsPlan_QDXCode':'QDXInsPlanCode',
                            'Tier1Payor_y':'PrimaryInsTier1Payor', 'Tier1PayorName_y':'PrimaryInsTier1PayorName', 'Tier1PayorID_y':'PrimaryInsTier1PayorID',
                            'Tier2Payor_y':'PrimaryInsTier2Payor', 'Tier2PayorName_y':'PrimaryInsTier2PayorName', 'Tier2PayorID_y':'PrimaryInsTier2PayorID',
                            'Tier4Payor_y':'PrimaryInsTier4Payor', 'Tier4PayorName_y':'PrimaryInsTier4PayorName', 'Tier4PayorID_y':'PrimaryInsTier4PayorID',
-                           'FinancialCategory_y':'PrimaryInsFinancialCategory'}, inplace=True)
+                           'FinancialCategory_y':'PrimaryInsFinancialCategory',
+                           'LineOfBenefit_y':'PrimaryInsLineOfBenefit'}, inplace=True)
 
 OLI_data['Rerouted_Ticket'] = (OLI_data['Tier4PayorID'] == OLI_data['PrimaryInsTier4PayorID']).map({False:'Yes',True:'No'})
-OLI_data.loc[(OLI_data.Tier4PayorID.isnull() & OLI_data.PrimaryInsTier4PayorID.isnull()),'Rerouted_Ticket'] = 'No'  # NaN is not equal to NaN
+OLI_data.loc[(OLI_data.Tier4PayorID.isnull() & OLI_data.PrimaryInsTier4PayorID.isnull()),'Rerouted_Ticket'] = 'No'  # workaround NaN is not equal to NaN
 OLI_data['Reroute_ChangedFC'] = (OLI_data['FinancialCategory'] == OLI_data['PrimaryInsFinancialCategory']).map({False:'Yes',True:'No'})  
 OLI_data.loc[(OLI_data.FinancialCategory.isnull() & OLI_data.PrimaryInsFinancialCategory.isnull()),'Reroute_ChangedFC'] = 'No'  # NaN is not equal to NaN
 
@@ -458,11 +445,6 @@ b = ~(OLI_data.OrderLineItemCancellationReason.isnull())
 c = ~(OLI_data.FailureMessage.isnull())
 x = a & (b | c)
 OLI_data.loc[x, 'Status Notes'] = "Test Delivered = " + OLI_data.loc[a,'TestDelivered'].astype(str) + "*"
-
-#output the information for analysis & checking
-#Delivered_w_issues = OLI_data[x]
-#output_file = 'Delivered_w_issues.txt'
-#Delivered_w_issues.to_csv(cfg.output_file_path+output_file, sep='|',index=False)
 
 # Scenarios: Test Not Delivered
 # Assume the Test Order is Active
@@ -741,7 +723,10 @@ TXN_Detail.loc[TXN_Detail['TXNType'].isin(['Total Outstanding']),'TXNType'] = 'O
 ## may need to add the PrimaryIns info - sep 20
 OLI_detail = OLI_data[['OLIID','Test','TestDeliveredDate'
                         ,'Tier1Payor','Tier1PayorID','Tier2Payor','Tier2PayorID','Tier4Payor','FinancialCategory','ReportingGroup'
-                        , 'TerritoryRegion', 'OrderingHCPState']]
+                        ,'PrimaryInsTier1Payor', 'PrimaryInsTier1PayorID'
+                        ,'PrimaryInsTier2Payor', 'PrimaryInsTier2PayorID'
+                        ,'PrimaryInsTier4Payor', 'PrimaryInsFinancialCategory'
+                        ,'TerritoryRegion', 'OrderingHCPState']]
 #'LineOfBenefit'
 
 TXN_Detail = pd.merge(TXN_Detail,OLI_detail,
@@ -972,6 +957,7 @@ for i in Payor_view.Set.unique():
     primaryins_set = 'PrimaryIns' + '_' + i
     
     Claim2Rev_tableau.loc[Claim2Rev_tableau[mapping[join_column]].isin(list(code)),primaryins_set] = '1'
+    TXN_Detail.loc[TXN_Detail[mapping[join_column]].isin(list(code)),primaryins_set] = '1'
 
 #Claim2Rev_tableau.drop(['Tier2PayorID', 'Tier1PayorID'], axis=1, inplace=True)
 # repeat columns for Tableau color purpose

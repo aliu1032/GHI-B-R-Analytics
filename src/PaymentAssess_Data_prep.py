@@ -97,7 +97,10 @@ cond = (~OLI_data.IBC_TumorSizeCentimeters.isna()) &\
 OLI_data.loc[cond,'TumorSize'] = '1.0 < Size <= 5.0 cm'
 cond = (~OLI_data.IBC_TumorSizeCentimeters.isna()) &\
        (OLI_data.IBC_TumorSizeCentimeters > 5.0)
-OLI_data.loc[cond,'TumorSize'] = 'Size > 5.0 cm'       
+OLI_data.loc[cond,'TumorSize'] = 'Size > 5.0 cm'
+
+OLI_data['MedOnc_Order'] = (OLI_data[~OLI_data.Specialty.isnull()].Specialty == 'Oncologist').map({True:'Med Onc Order', False:'Non-Med Onc Order'})
+
 '''
 Example: OR001072184 : Multi Tumor order
 OL001094259 has a claim
@@ -209,6 +212,7 @@ IBC_compare = { 'NodalStatus' : 'MP_GHI_NodeStatus__c',
                 'HormoneReceptorHR' : 'MP_GHI_HormoneReceptorHR__c',
                 'PatientAgeAtDiagnosis' : 'MP_GHI_AgeAtDiagnosisRange__c',
                 'ProcedureType' :  'MP_GHI_ProcedureType__c',
+                'MedOnc_Order' : 'MP_GHI_MedOncOrder__c',
 #                'PreClaim_Failure' : 'PA_Required',
                 'MultiplePrimaries' : 'MP_GHI_MultiTumor__c'
                 }

@@ -134,29 +134,15 @@ def OLI_detail(usage, folder, refresh=1, PayorHierarchy = 'At_OrderCapture'):
     a = output.ReportingGroup == 'Node Positive (Micromet)'
     output.loc[a,'ReportingGroup'] = output.loc[a,'NodalStatus'] 
     
+    a = output.Test == 'Prostate-AR-V7'
+    output.loc[a,'ReportingGroup'] = 'ARV7' 
     #########################################################################################
     #  Enrich Data                                                                          #
-    #  - Reading the Financial Category code from GHI. GHI import and track the FC for      #
-    #    T4 payor and not for self pay, roster,etc                                          #
-    #  - Add on QDX FC to match QDX ASR; use the QDX FC to fill in missing FC in OLI file   #
+    # get the revised NCCN Risk Category for Prostate Intermediate Risk
+    # first fetch the information from Order Description
+    # patch it with the calculation
     #########################################################################################
-    ## The payor fc in GHI system is blank when the GHI intergration program does not map the Quadax FC
-    ## Read QDX Ins Plan Txt for Financial Category where GHI does not import the FC for the payor
-    '''    move this to getSFDCPayors
-    inscode = pd.read_csv(cfg.prep_file_path+'insCodes.txt', sep="|", quoting=3, encoding='utf-8-sig', error_bad_lines=False) 
-    inscode = inscode[~(inscode['insAltId'].isnull())][['insCode','insFC','insAltId']]
-    inscode.rename(columns = {'insCode' : 'QDXInsCode', 'insFC':'QDXInsFC'}, inplace=True)
-    ## need to check if the QDXinsPlanCode is matching the current Tier4Payor or the appealInsCode
-    
-    output = pd.merge(output, inscode, how='left',\
-                                    left_on=['Tier4PayorID'], right_on=['insAltId'])
-    output = output.drop(['QDXInsCode','insAltId'],1)
-    '''
-    
-    ## get the revised NCCN Risk Category for Prostate Intermediate Risk
-    ## first fetch the information from Order Description
-    ## patch it with the calculation
-       
+      
     output['SFDCSubmittedNCCNRisk'] = output['SubmittedNCCNRisk']
     
     '''
@@ -215,8 +201,11 @@ def OLI_detail(usage, folder, refresh=1, PayorHierarchy = 'At_OrderCapture'):
     ###
     ### Do the calculation for Intermediate Risk Only
     cond = (output.TestDeliveredDate>='2017-06-01') & (output.Test=='Prostate') & (output.SFDCSubmittedNCCNRisk == 'Intermediate Risk') &\
-           (~output['Revised SubmittedNCCNRisk'].isin(['Favorable Intermediate','Unfavorable Intermediate']))
+           (~output['Revised SubmittedNCCNRisk'].isin(['Favorable Intermediate','Unfavorable Intermediate']))  # only calculate for those cannot obtain the information from SFDC Order Description
     output.loc[cond ,'SubmittedNCCNRisk'] = output.loc[cond].apply(lambda x : NCCN_Update(x['HCPProvidedGleasonScore'], x['HCPProvidedPSA'], x['HCPProvidedClinicalStage'], x['SFDCSubmittedNCCNRisk']), axis = 1)
+   
+    cond = (output.TestDeliveredDate>='2017-06-01') & (output.Test=='Prostate') & (output.SFDCSubmittedNCCNRisk == 'Intermediate Risk') 
+    output.loc[cond,'ReportingGroup'] = output.loc[cond].apply(lambda x : 'NCCN - ' + x['SubmittedNCCNRisk'], axis = 1)
     
     #################################################
     #  Output OLI detail for the given usage        #
@@ -294,7 +283,7 @@ def revenue_data(usage, folder, refresh=1):
         output['TestDeliveredDate'] = pd.to_datetime(output.TestDeliveredDate.str[:8],format = "%Y-%m-%d", errors = 'ignore')
     output['ClaimPeriodDate'] = pd.to_datetime(output.ClaimPeriodDate.str[:8],format = "%Y-%m-%d", errors = 'ignore')
        
-    output['OLIID'].fillna('Unknown()', inplace=True)
+    output['OLIID'].fillna('NONE', inplace=True)
     
     output['Tier1Payor'] = output.Tier1PayorName + " (" + output.Tier1PayorID + ")"
     output['Tier2Payor'] = output.Tier2PayorName + " (" + output.Tier2PayorID + ")"
