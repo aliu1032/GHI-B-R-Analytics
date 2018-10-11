@@ -16,6 +16,12 @@ PTC = GData.getPTC('', cfg.input_file_path, cfg.refresh)
 
 criteria_enum = pd.read_excel(cfg.prep_file_path+'Enum.xlsx', sheet_name = "Criteria_ENUM", encoding='utf-8-sig', usecols="A:C,E:F")
 
+#temp fix for 1 major PTC
+PTC.loc[PTC.Name=='PC000203891','GHI_PatientGender__c'] = 'Male;Female'
+PTC.loc[PTC.Name=='PC000203891','GHI_MultiTumor__c'] = 'Yes'
+PTC.loc[PTC.Name=='PC000203891','GHI_NodeStatus__c'] = 'Node Negative (pN0);Micromets (pN1mi: 0.2 2.0mm);Node Positive (1-3 Nodes)'
+PTC.loc[PTC.Name=='PC000203891','GHI_ERStatus__c'] = 'Positive'
+
 # Create PTC dump for IBC and Prostate
 Long_PTC = pd.DataFrame([])
 build = ['IBC','Prostate','DCIS','Colon']

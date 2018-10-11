@@ -619,11 +619,27 @@ Ticket_TXN_Detail = pd.concat([temp_claim, temp_pymnt, temp_outstanding]).\
 
 ########### Version 1 ################
 #Version 1: Adding the Current Payer from OLI to the Claim, Payment, Adjustment - thus the Claim, Payment, Adjustment matches the Claim2Rev
-Ticket_TXN_Detail_v1 = pd.merge(Ticket_TXN_Detail, Claim_Payor, how='left', on=['OLIID', 'TicketNumber']) #OLI_Payor
+Ticket_TXN_Detail_v1 = pd.merge(Ticket_TXN_Detail, Claim_OLI_Ticket, how='left', on=['OLIID', 'TicketNumber']) #OLI_Payor
 Ticket_TXN_Detail_v1 = pd.merge(Ticket_TXN_Detail_v1, TickCnt, how='left', left_on=['OLIID'], right_index=True)
-Ticket_TXN_Detail_v1 = pd.merge(Ticket_TXN_Detail_v1, OLI_Test_Info, how='left', on='OLIID')
+Ticket_TXN_Detail_v1 = pd.merge(Ticket_TXN_Detail_v1, OLI_Test_Info[['OLIID','Test']], how='left', on='OLIID')
 
-Ticket_TXN_Detail_v1 = pd.concat([Ticket_TXN_Detail_v1, temp_rev], ignore_index=True)
+first = 'Test_x'
+backup = 'Test_y'
+Ticket_TXN_Detail_v1['Test'] = Ticket_TXN_Detail_v1[first]
+Ticket_TXN_Detail_v1.loc[Ticket_TXN_Detail_v1['Test']=='Unknown','Test'] = Ticket_TXN_Detail_v1.loc[Ticket_TXN_Detail_v1['Test']=='Unknown',backup]
+Ticket_TXN_Detail_v1.drop(['Test_x','Test_y'], axis=1, inplace=True)
+
+Ticket_TXN_Detail_v1 = pd.concat([Ticket_TXN_Detail_v1[['OLIID','Test','TestDeliveredDate','ClaimEntryDate','QDXTickCnt','TicketNumber',
+                                       'TXNAcctPeriod','TXNType','TXNAmount','TXNCurrency','TXNDate','TXNCategory','TXNLineNumber',
+                                       'QDXAdjustmentCode','QDXAdjustmentDesc', 'GHIAdjustmentCode','AdjustmentGroup',
+                                       'Tier4PayorID','QDXInsPlanCode']],\
+                                 temp_rev[['OLIID','Test','TestDeliveredDate','OrderStartDate','QDXTickCnt','TicketNumber',
+                                            'TXNAcctPeriod','TXNType','TXNAmount','TXNCurrency','TXNDate','TXNCategory','TXNLineNumber',
+                                            'Tier4PayorID','QDXInsPlanCode']]],\
+                                 ignore_index=True)
+
+
+#Ticket_TXN_Detail_v1 = pd.concat([Ticket_TXN_Detail_v1, temp_rev], ignore_index=True)
 Ticket_TXN_Detail_v1 = Ticket_TXN_Detail_v1[~(Ticket_TXN_Detail_v1.TXNAmount == 0.0)]
 Ticket_TXN_Detail_v1['TXNAcctPeriodDate'] = pd.to_datetime(Ticket_TXN_Detail_v1.TXNAcctPeriod, format="%b %Y")
 
@@ -687,8 +703,7 @@ for u in list(temp.keys()):
 #### when need to explore how to take proactive actions to reduce the Revenue Impacted Adjustment
 Ticket_TXN_Detail_v2 = pd.merge(Ticket_TXN_Detail_v2, OLI_patientcriteria, how='left', on='OLIID')
 Ticket_TXN_Detail_v2 = pd.merge(Ticket_TXN_Detail_v2, OLI_HCPHCO, how='left', on='OLIID')
-
-Ticket_TXN_Detail_v2 = pd.merge(Ticket_TXN_Detail_v2, Current_reference[['OLIID','CurrentQDXCaseNumber']], how='left', on='OLIID')
+Ticket_TXN_Detail_v2 = pd.merge(Ticket_TXN_Detail_v2, Claim_OLI_Ticket[['OLIID','TicketNumber','CaseNumber','ClaimEntryDate']], how='left', on=['OLIID','TicketNumber'])
 
 priorAuth = QData.priorAuth('Claim2Rev', cfg.input_file_path, refresh)
 
@@ -697,7 +712,7 @@ Ticket_TXN_Detail_v2 = pd.merge(Ticket_TXN_Detail_v2, priorAuth[['priorAuthCaseN
                                           'priorAuthDate',
                                           'priorAuthResult','priorAuthReqDesc','priorAuthNumber',
                                           'priorAuthResult_Category']]
-                    , how='left', left_on='CurrentQDXCaseNumber', right_on='priorAuthCaseNum')
+                    , how='left', left_on='CaseNumber', right_on='priorAuthCaseNum')
 
 # rearranging columns and sort rows
 Ticket_TXN_Detail_v2 = Ticket_TXN_Detail_v2[['OLIID', 'Test', 'TicketNumber', 'QDXTickCnt'
@@ -730,6 +745,8 @@ Ticket_TXN_Detail_v2 = Ticket_TXN_Detail_v2[['OLIID', 'Test', 'TicketNumber', 'Q
                                        , 'OrderingHCPName','OrderingHCPCity', 'OrderingHCPState', 'OrderingHCPCountry'
                                        , 'IsOrderingHCPCTR', 'IsOrderingHCPPECOS', 'Specialty'
                                        , 'OrderingHCO', 'OrderingHCOCity', 'OrderingHCOState', 'OrderingHCOCountry'
+                                       
+                                       ,'CaseNumber'
                        
 #                                       , 'priorAuthEnteredDt','priorAuthEnteredTime'
                                        , 'priorAuthDate'

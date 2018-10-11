@@ -4,7 +4,6 @@ from datetime import datetime
 from data import GetGHIData as GData
 import project_io_config as cfg
 
-
 pd.options.display.max_columns=999
 print ('PayorTestValidation :: start :: ',datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 cfg.refresh=1
