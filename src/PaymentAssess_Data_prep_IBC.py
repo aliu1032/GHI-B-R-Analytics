@@ -436,7 +436,7 @@ Data = Data.apply(lambda x: In_or_Out_2(x), axis=1)
 ###################################################################
 # Write the output
 ####################################################################
-output_file = 'In_or_Out.txt'
+output_file = 'In_or_Out_IBC.txt'
 Data.to_csv(cfg.output_file_path+output_file, sep='|',index=False)
 
 print("Payment Assessment Data Prep Done Done")
