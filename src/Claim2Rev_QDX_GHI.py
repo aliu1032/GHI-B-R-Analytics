@@ -107,7 +107,8 @@ Current_ticket = Claim_bill.loc[temp2][['OLIID','TicketNumber', 'CaseNumber',
                                         'BillingCaseStatusCode', 'BillingCaseStatus',
                                         'TicketInsPlan_QDXCode','TicketInsPlan_GHICode',
                                         'PrimaryInsPlan_QDXCode', 'PrimaryInsPlan_GHICode',
-                                        'OLIDOS', 'TXNDate']].copy()
+                                        'OLIDOS', 'TXNDate',
+                                        'Days_toInitPymnt','Days_toLastPymnt']].copy()
 
 Current_ticket.rename(columns = {'TicketNumber': 'CurrentQDXTicketNumber', 'OLIDOS':'QDX_DOS', 'TXNDate':'ClaimEntryDate'}, inplace=True)
 TickCnt = (pd.pivot_table(Claim_bill, index=['OLIID'], values = 'TicketNumber',\
@@ -132,7 +133,8 @@ Current_reference = Current_reference[['OLIID','CurrentQDXTicketNumber','QDXTick
                                        'BillingCaseStatusCode', 'BillingCaseStatus',
                                        'TicketInsPlan_QDXCode','TicketInsPlan_GHICode',
                                        'PrimaryInsPlan_QDXCode', 'PrimaryInsPlan_GHICode',
-                                       'QDX_DOS', 'ClaimEntryDate']]
+                                       'QDX_DOS', 'ClaimEntryDate',
+                                       'Days_toInitPymnt','Days_toLastPymnt']]
 
 OLI_data = pd.merge(OLI_data, Current_reference, how='left', on='OLIID')
 
@@ -641,7 +643,7 @@ Claim2Rev= pd.merge(Claim2Rev, priorAuth[['priorAuthCaseNum','priorAuthEnteredDt
 # all the EOB issued with payment to the OLI                               #
 ############################################################################
 
-Claim2Rev = pd.merge(Claim2Rev, OLI_Result_Specimen[['OLIID','ProcedureType']], how='left', on ='OLIID')
+Claim2Rev = pd.merge(Claim2Rev, OLI_Result_Specimen[['OLIID','ProcedureType','Age_Of_Specimen']], how='left', on ='OLIID')
 
 ############################################################################
 # Source the OLI allowable amount from Quadax                              #
@@ -845,15 +847,18 @@ Claim2Rev_USD_excel = Claim2Rev[Claim2Rev.BusinessUnit == 'Domestic'][['OrderID'
 
 OLI_PTx = Claim2Rev[Claim2Rev.BusinessUnit == 'Domestic']\
         [['OrderID', 'OLIID', 'Test', 
-        'TestDeliveredDate', 'CurrentQDXTicketNumber',
-#        'QDXTickCnt','QDXCaseCnt',
-        'BillingCaseStatusSummary2', 'BillingCaseStatusCode', 'BillingCaseStatus','Orig_BillingCaseStatus',
+        'TestDeliveredDate',
+        'ClaimEntryDate','Days_toInitPymnt','Days_toLastPymnt',
+        'CurrentQDXTicketNumber','QDXTickCnt','QDXCaseCnt',
+                
+        'BillingCaseStatusSummary2', 'BillingCaseStatusCode', 'BillingCaseStatus', 'Orig_BillingCaseStatus',
 #        'BilledCurrency', 'ListPrice', 'ContractedPrice', 'Total Outstanding',
         'Total Billed', 'Charge',
 
 #        'ClmAmtRec', 
         'Total Payment',
         'PayorPaid','PatientPaid',
+        'AllowedAmt',
 
 #        'ClmAmtAdj', 'stdP_ClmAmtAdj',
 #        'Total Adjustment'
@@ -871,7 +876,7 @@ OLI_PTx = Claim2Rev[Claim2Rev.BusinessUnit == 'Domestic']\
 #        'PrimaryInsTier4Payor', 'PrimaryInsTier4PayorID', 'PrimaryInsTier4PayorName',  'PrimaryInsFinancialCategory',
             
 #        'Reportable', 'IsCharge',
-        'TestDelivered', 'IsClaim', 'IsFullyAdjudicated',
+        'TestDelivered', 'IsClaim', 'IsFullyAdjudicated', 'Rerouted_Ticket',
 #        'IsContract', 'IsAccrual',
 #        'RevenueStatus', 'NSInCriteria',
         
@@ -883,13 +888,21 @@ OLI_PTx = Claim2Rev[Claim2Rev.BusinessUnit == 'Domestic']\
         'OrderingHCPCity', 'OrderingHCPState', 'OrderingHCPCountry',
         'IsOrderingHCPCTR', 'IsOrderingHCPPECOS', 'OrderStartDate',
         
-        'Specialty','ProcedureType','NodalStatus','PatientAgeAtDiagnosis',
-        'SubmittingDiagnosis','RiskGroup','ReportingGroup','HCPProvidedClinicalStage',
+        'Specialty','ProcedureType','Age_Of_Specimen',
+        'NodalStatus','PatientAgeAtDiagnosis',
+        'SubmittingDiagnosis','HCPProvidedClinicalStage',
         'SubmittedER', 'SubmittedHER2','SubmittedPR','MultiplePrimaries', 'IBC_TumorSizeCentimeters','DCISTumorSize',
-        'RecurrenceScore','HER2GeneScore','ERGeneScore','PRGeneScore','DCISScore',
+#        'RecurrenceScore','HER2GeneScore','ERGeneScore','PRGeneScore','DCISScore',
         'HCPProvidedGleasonScore','HCPProvidedPSA',
-        'EstimatedNCCNRisk', 'SubmittedNCCNRisk', 'SFDCSubmittedNCCNRisk','FavorablePathologyComparison',
+        'EstimatedNCCNRisk', 'SubmittedNCCNRisk',
+#        'SFDCSubmittedNCCNRisk','FavorablePathologyComparison',
+#        'RiskGroup','ReportingGroup',
         
+        'ProstateVolume','PSADensity','NumberOfCoresCollected','HCPProvidedNumberOfPositiveCores','MaxPctOfTumorInvolvementInAnyCore',
+        'NumberOf4Plus3Cores','PreGPSManagementRecommendation','OtherPreGPSManagementRecommendation',
+        
+        'appealDenReason','appealDenReasonDesc','appealSuccess', 'appealResult',
+               
         'priorAuthResult','priorAuthResult_Category','priorAuthNumber', 'PreClaim_Failure'
         ]]
 
@@ -1040,6 +1053,10 @@ Dashboard_Dataset = [['Front-End Charts', 'Claim2Rev', 'Managed Care Analytics']
                     ,['All','Claim2Rev','Managed Care Appeal Reports']
                     ,['Payor Test Criteria Summary','Long PTC','Managed Care PTC-PTV Report']
                     ,['Payor Test Validation Summary','Long PTV','Managed Care PTC-PTV Report']
+                    ,['Missing IBC Medical Policy','In_or_Out_IBC','Managed Care PTC-PTV Report']
+                    ,['No IBC coverage contract','In_or_Out_IBC','Managed Care PTC-PTV Report']
+                    ,['Missing Prostate Medical Policy','In_or_Out_Prostate','Managed Care PTC-PTV Report']
+                    ,['No Prostate coverage contract','In_or_Out_Prostate','Managed Care PTC-PTV Report']
                     ,['All','Payor_Monthly_Report', 'Payor Monthly Report']
                     ]
 

@@ -343,7 +343,8 @@ def getPTC (usage, folder, refresh = 1):
     if refresh:
         cnxn = pyodbc.connect('Trusted_Connection=yes',DRIVER='{ODBC Driver 13 for SQL Server}',SERVER=server)
 
-        f = open(cfg.sql_folder + 'StagingDB_SFDC_PTC.sql')
+        #f = open(cfg.sql_folder + 'StagingDB_SFDC_PTC.sql')
+        f = open(cfg.sql_folder + 'StagingDB_SFDC_PTC_wPayerPlanMaster.sql')
         tsql = f.read()
         f.close()
 
@@ -416,6 +417,7 @@ def getPayors (usage, folder, refresh = 1):
     ## Read QDX Ins Plan Txt for Financial Category where GHI does not import the FC for the payor
     #yet to do
     # also need to pull LineOfBenefit from SFDC
+    
     from data import GetQDXData
     inscodes = GetQDXData.insCodes('',folder, refresh)
      

@@ -35,11 +35,11 @@ PTV_PA_enum = pd.read_excel(cfg.prep_file_path+'Enum.xlsx', sheet_name = "PA_ENU
 ## Procedure Type
 ## Age
 ## Tumor size
-
+'''
 select_columns = [
  'OrderID', 'OLIID', 'Test',
  'TestDeliveredDate', 'OrderStartDate',
-
+ 
  'Tier1PayorID', 'Tier1PayorName', 'Tier1Payor',
  'Tier2PayorID', 'Tier2Payor', 'Tier2PayorName',
  'Tier4PayorID', 'Tier4Payor', 'Tier4PayorName',
@@ -60,6 +60,54 @@ select_columns = [
  'BillingCaseStatusSummary2', 'BillingCaseStatus',
  'PreClaim_Failure'
  ]
+'''
+select_columns = [
+    'OrderID', 'OLIID', 'Test',
+    'TestDeliveredDate', 'OrderStartDate',
+    'ClaimEntryDate', 'Days_toInitPymnt', 'Days_toLastPymnt',
+    'CurrentQDXTicketNumber',
+    'QDXTickCnt', 'QDXCaseCnt',
+    
+    'BillingCaseStatusSummary2', 'BillingCaseStatusCode', 'BillingCaseStatus', #'Orig_BillingCaseStatus',
+    
+    'Total Billed', 'Charge', 'Total Payment', 'PayorPaid', 'PatientPaid','AllowedAmt',
+    
+    'All other Adjustment', 'Charged in Error',
+    'GHI Adjustment', 'Insurance Adjustment', 'Refund & Refund Reversal', 'Revenue Impact Adjustment',
+    
+    'Tier1PayorID', 'Tier1PayorName', 'Tier1Payor',
+    'Tier2PayorID', 'Tier2Payor', 'Tier2PayorName',
+    'Tier4PayorID', 'Tier4Payor', 'Tier4PayorName',
+    'QDXInsPlanCode', 'FinancialCategory',
+    
+    'TestDelivered', 'IsClaim', 'IsFullyAdjudicated',
+    'Rerouted_Ticket', 'Status',
+    
+    'BusinessUnit', 'InternationalArea', 'Division', 'Country',
+    'OrderingHCPName', 'OrderingHCPCity', 'OrderingHCPState', 'OrderingHCPCountry',
+    'Territory', 'TerritoryRegion', 'TerritoryArea', 
+    
+#    'IsOrderingHCPPECOS', 
+#    'IsOrderingHCPCTR',
+    'Specialty', 'ProcedureType',
+    'NodalStatus', 'PatientAgeAtDiagnosis',
+#    'SubmittingDiagnosis', 'RiskGroup', 'ReportingGroup',
+    'HCPProvidedClinicalStage',
+    'SubmittedER', 'SubmittedHER2', 'SubmittedPR', 'MultiplePrimaries',
+    'IBC_TumorSizeCentimeters',
+#    'DCISTumorSize', 'RecurrenceScore',
+#    'HER2GeneScore', 'ERGeneScore', 'PRGeneScore', 'DCISScore',
+#    'HCPProvidedGleasonScore', 'HCPProvidedPSA',
+#    'EstimatedNCCNRisk', 'SubmittedNCCNRisk', 'SFDCSubmittedNCCNRisk',
+#    'FavorablePathologyComparison', 'ProstateVolume', 'PSADensity',
+#    'NumberOfCoresCollected', 'HCPProvidedNumberOfPositiveCores',
+#    'MaxPctOfTumorInvolvementInAnyCore', 'NumberOf4Plus3Cores',
+#    'PreGPSManagementRecommendation', 'OtherPreGPSManagementRecommendation',
+
+    'appealDenReason', 'appealDenReasonDesc', 'appealSuccess','appealResult', 
+    'priorAuthResult', 'priorAuthResult_Category',
+    'priorAuthNumber', 'PreClaim_Failure']
+
 
 OLI_data = Claim2Rev[(Claim2Rev.Test=='IBC') &\
                      ~(Claim2Rev.CurrentQDXTicketNumber.isnull()) &\
@@ -117,7 +165,7 @@ OL001097337 is test delivered and does not have a claim
 # 13 of the 19 has corresponding Patient data to compare with
 ########################################################
 
-select_columns = ['Name',
+select_columns = ['Name', 'Policy_Status',
 # 'Policy',
  'Test',
 # 'Tier2PayorName', 'Tier2PayorID',
@@ -147,7 +195,7 @@ select_columns = ['Name',
 'CT_PTC_Available'
 ]
 
-PTC_Criteria = select_columns[3:-2]
+PTC_Criteria = select_columns[4:-2]
 
 '''
 Add a check to flag a blank PTC: all criteria and set to xx_PTC_Available = 'No'
@@ -167,7 +215,7 @@ new_names = {}
 for i in PTC_Criteria:
     new_name = 'MP_' + i
     new_names[i]=new_name
-MP_PTC_data.rename(columns={'Name':'MP_PTC'}, inplace=True)
+MP_PTC_data.rename(columns={'Name':'MP_PTC', 'Policy_Status':'MP_Policy_Status'}, inplace=True)
 MP_PTC_data.rename(columns=new_names, inplace=True)
 
     
@@ -176,7 +224,7 @@ new_names = {}
 for i in PTC_Criteria:
     new_name = 'CT_' + i
     new_names[i]=new_name
-CT_PTC_data.rename(columns={'Name':'CT_PTC'}, inplace=True)
+CT_PTC_data.rename(columns={'Name':'CT_PTC','Policy_Status':'CT_Policy_Status'}, inplace=True)
 CT_PTC_data.rename(columns=new_names, inplace=True)
 
 ########################################################
@@ -204,6 +252,41 @@ Data['CT_PTC_Available'] = Data['CT_PTC_Available'].fillna('Yes')
 Data = pd.merge(Data, PTV_data, how='left', on = ['Tier4PayorID', 'Test'])
 Data['PTV_Available'] = 'Yes'
 Data.loc[Data.PTV.isnull(),'PTV_Available'] = 'No'
+
+####################################################################
+# 
+# extract data set to publish to B&R Tableau to support data clean
+# Publish report in the GNAM Monthly Refresh
+#
+####################################################################
+
+Data_for_Ops = Data[['OrderID', 'OLIID', 'Test', 'TestDeliveredDate', 'OrderStartDate',
+               'Tier1PayorID', 'Tier1PayorName', 'Tier1Payor', 'Tier2PayorID',
+               'Tier2Payor', 'Tier2PayorName', 'Tier4PayorID', 'Tier4Payor',
+               'Tier4PayorName', 'QDXInsPlanCode', 'FinancialCategory',
+               
+               'MP_PTC', 'MP_Policy_Status',
+               'MP_PTC_Available', 'CT_PTC', 'CT_Policy_Status',
+               'CT_PTC_Available', 'PTV'
+               ]].copy()
+
+        #########################################
+        #   Add the Payor View Set assignment   #
+        #########################################
+prep_file_name = "Payor-ViewSetAssignment.xlsx"
+Payor_view = pd.read_excel(cfg.prep_file_path+prep_file_name, sheet_name = "SetAssignment", usecols="B:D", encoding='utf-8-sig')
+
+for i in Payor_view.Set.unique() :
+    #print (i)
+    code = Payor_view[Payor_view.Set==i].PayorID
+    join_column = Payor_view[Payor_view.Set==i].JoinWith.iloc[0]
+    
+    Data_for_Ops.loc[Data_for_Ops[join_column].isin(list(code)),i] = '1'
+
+output_file = 'IBC_OLI+PTC.txt'
+Data_for_Ops.to_csv(cfg.output_file_path+output_file, sep='|',index=False)
+
+print("IBC_OLI+PTC data refresh done")
 
 ####################################################################
 # Prepare the data for comparison
@@ -254,20 +337,23 @@ def In_or_Out_1 (record):
     
     # kick it to 'OUT' if PTC is not available, either no PTC record or PTC is blank
     if record.MP_PTC_Available != 'Yes':
-        record['MP_InCriteria_1'] = '.PTC unknown'
+        record['MP_InCriteria_1'] = '.Out'
+        for i in list(IBC_compare.keys()):
+            comparing = IBC_compare[i][7:-3] + '_coverage'
+            record[comparing] = '.Out'
         return(record)
     
     InCriteria_1_temp = [] 
     for i in list(IBC_compare.keys())[:-1]:  # exclude comparing Multiple Primaries 
         #print ('OLI: ', record[i], ' vs ', record[IBC_compare[i]])
-        comparing = IBC_compare[i][:-3] + '_coverage_1'
+        comparing = IBC_compare[i][7:-3] + '_coverage'
         
         if (record[i] != '') and (record[i] != 'Unknown'):  # Patient clinical criteria is captured in OLI, then compare
             if (type(record[IBC_compare[i]]) == list):   # PTC clinical criteria is entered
                 record[comparing] = '..In' if (record[i] in record[IBC_compare[i]]) else '.Out'
                 InCriteria_1_temp.append((record[i] in record[IBC_compare[i]]))
             else:                                        # PTC clinical criteria is blank
-                record[comparing] = '.MP_Criteria blank'
+                record[comparing] = '.Criteria NA'
                 # by pass when both patient & ptc have no information
                 
         else:                                            # Patient clinical criteria is unavailable
@@ -275,7 +361,7 @@ def In_or_Out_1 (record):
                 record[comparing] = '.Out'
                 InCriteria_1_temp.append(0)          # Patient clinical criteria is not captured in OLI, set to 'Out' as no information to compare
             else:
-                record[comparing] = 'Patient & MP_Criteria blank'
+                record[comparing] = 'Patient & Criteria NA'
                 # by pass when both patient & ptc have no information
 
     # evaluate multi tumor coverage, only evaluate OLI which multi tumor = Yes. All IBC OLIs either Yes or No multiple primaries
@@ -283,13 +369,13 @@ def In_or_Out_1 (record):
     # when 'Yes' is selected, it means the payer covers multi tumor; 'No' is selected means the payer does not cover multi tumor
     # PTC multi tumor is blank when we do not know whether payor covers multi tumor
     # all payers cover OLI with multi tumor = No
-    comparing = 'MP_GHI_MultiTumor_coverage_1'
+    comparing = 'MultiTumor_coverage'
     if record['MultiplePrimaries'] == 'Yes':
         if (type(record[IBC_compare[i]]) == list):
             InCriteria_1_temp.append((record['MultiplePrimaries'] in record['MP_GHI_MultiTumor__c']))
             record[comparing] = '..In' if (record['MultiplePrimaries'] in record['MP_GHI_MultiTumor__c']) else '.Out'
         else:
-            record[comparing] = '.MP_Criteria blank'
+            record[comparing] = '.Criteria NA'
     else: # OLI Multiple Primaries = No
         record[comparing] = '..In'
     
@@ -321,7 +407,7 @@ def In_or_Out_1 (record):
     # for PA_Required = True and PreClaim_Failure = 'Non Failure' then IN
     # PA_Required = True and PreClaim_Failure = 'Failure' or = blank, then OUT
     # for PA_Required = False, then does not matter what is PreClaim_Failure
-    comparing = 'PA_requirement_1'
+    comparing = 'PA_requirement_coverage'
     
     if record['PreClaim_Failure'] == 'Failure':
         record[comparing] = '.Out'
@@ -438,6 +524,8 @@ Data = Data.apply(lambda x: In_or_Out_2(x), axis=1)
 ####################################################################
 output_file = 'In_or_Out_IBC.txt'
 Data.to_csv(cfg.output_file_path+output_file, sep='|',index=False)
+
+
 
 print("Payment Assessment Data Prep Done Done")
 

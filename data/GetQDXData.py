@@ -318,12 +318,12 @@ def stdClaim(usage, folder, refresh=0):
 
     #database = 'Quadax'
     target = server + '_' + database + '_' + 'QDX_stdClaimFile.txt'
-
+    
     prep_file_name = "QDX_ClaimDataPrep.xlsx"
     claim_note = pd.read_excel(cfg.prep_file_path+prep_file_name, sheet_name = "QDXClaim", skiprows=1, encoding='utf-8-sig')
     rename_columns = dict(zip(claim_note.QDX_stdClaimFile, claim_note.Synonyms))
     data_type = dict(zip(claim_note.QDX_stdClaimFile, claim_note.Type))
-       
+    
     f = open(cfg.sql_folder + 'QDX_stdClaim.sql')
     tsql = f.read()
     f.close()
@@ -357,6 +357,17 @@ def stdClaim(usage, folder, refresh=0):
     output.OLIDOS = pd.to_datetime(output.OLIDOS, format = "%Y%m%d")
     output.TXNDate = pd.to_datetime(output.TXNDate, format = "%Y%m%d")
     
+    for a in ['stdClmInitBillDt','stdClmInitPymntDt','stdClmLastBillDt','stdClmLastPymntDt']:
+        output[a] = pd.to_datetime(output[a], format = "%Y%m%d", errors='coerce')
+    
+    cond = (~output.stdClmInitBillDt.isnull()) & (~output.stdClmInitPymntDt.isnull())
+    output['Days_toInitPymnt'] = (output.loc[cond,'stdClmInitPymntDt'] - output.loc[cond,'stdClmInitBillDt']).astype('timedelta64[D]')
+    output[(output.Test=='Prostate') & (~output.Days_toInitPymnt.isnull())].Days_toInitPymnt.describe()
+
+    cond = (~output.stdClmInitBillDt.isnull()) & (~output.stdClmLastPymntDt.isnull())    
+    output['Days_toLastPymnt'] = (output.loc[cond,'stdClmLastPymntDt'] - output.loc[cond,'stdClmInitBillDt']).astype('timedelta64[D]')
+    output[(output.Test=='Prostate') & (~output.Days_toLastPymnt.isnull())].Days_toLastPymnt.describe()
+   
     for a in ['TXNAmount','ClmAmtAdj','ClmAmtRec','ClmTickBal']:
         output[a] = pd.to_numeric(output[a])
 
