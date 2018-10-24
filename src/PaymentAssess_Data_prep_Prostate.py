@@ -72,6 +72,8 @@ select_columns = [
  'HCPProvidedNumberOfPositiveCores',
  'NumberOf4Plus3Cores',  
  
+ 'appealDenReason','appealDenReasonDesc', 'appealSuccess', 'appealResult',
+ 
  'PreClaim_Failure'
  ]
 
@@ -313,7 +315,7 @@ def In_or_Out_1 (record):
                 record[comparing] = 'Patient & Criteria NA'
                 # by pass when both patient & ptc have no information
 
-    for i in Prostate_compare[-2:]:
+    for i in list(Prostate_compare.keys())[-2:]:
         comparing = Prostate_compare[i][7:-3] + '_coverage'
         if record[i] != '' and (record[i] != 'Unknown'):
             if (type(record[Prostate_compare[i]] == list)):
