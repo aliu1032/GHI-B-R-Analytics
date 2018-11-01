@@ -56,6 +56,7 @@ Revenue_data = GData.revenue_data('Claim2Rev', cfg.input_file_path, refresh)
 OLI_data = GData.OLI_detail('Claim2Rev', cfg.input_file_path, refresh)
 SFDC_Payors = GData.getPayors('Claim2Rev', cfg.input_file_path, refresh)
 OLI_Result_Specimen = GData.getOLIResult_Specimen('', cfg.input_file_path, refresh)
+OLI_SOMN_Status = GData.getSOMN_Status('', cfg.input_file_path, refresh)
 
 ###############################################################
 #   Read QDX Appeal Data                                      #
@@ -643,7 +644,7 @@ Claim2Rev= pd.merge(Claim2Rev, priorAuth[['priorAuthCaseNum','priorAuthEnteredDt
 # all the EOB issued with payment to the OLI                               #
 ############################################################################
 
-Claim2Rev = pd.merge(Claim2Rev, OLI_Result_Specimen[['OLIID','ProcedureType','Age_Of_Specimen']], how='left', on ='OLIID')
+Claim2Rev = pd.merge(Claim2Rev, OLI_Result_Specimen[['OLIID','ProcedureType','Age_Of_Specimen','IBC_Candidate_for_Adj_Chemo']], how='left', on ='OLIID')
 
 ############################################################################
 # Source the OLI allowable amount from Quadax                              #
@@ -663,6 +664,8 @@ OLI_allowable = allowable_amt.groupby(['OLIID']).agg({'stdPymntAllowedAmt':'max'
 OLI_allowable.columns = ['AllowedAmt']
 
 Claim2Rev = pd.merge(Claim2Rev, OLI_allowable, how='left', left_on = 'OLIID', right_index=True)
+
+Claim2Rev = pd.merge(Claim2Rev, OLI_SOMN_Status[['OLIID','SOMN_Status']], how='left', left_on = 'OLIID', right_on = 'OLIID')
 
 ############################################################
 #   Create a Transpose of the Bill, Adjustment, Revenue    #
@@ -900,6 +903,8 @@ OLI_PTx = Claim2Rev[Claim2Rev.BusinessUnit == 'Domestic']\
         
         'ProstateVolume','PSADensity','NumberOfCoresCollected','HCPProvidedNumberOfPositiveCores','MaxPctOfTumorInvolvementInAnyCore',
         'NumberOf4Plus3Cores','PreGPSManagementRecommendation','OtherPreGPSManagementRecommendation',
+        
+        'IBC_Candidate_for_Adj_Chemo', 'SOMN_Status',
         
         'appealDenReason','appealDenReasonDesc','appealSuccess', 'appealResult',
                

@@ -22,11 +22,10 @@ build = ['IBC','Prostate','DCIS','Colon']
 for i in build:
     
     print ('PayorCrieria :: start :: ', i ,'   ',datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-    
     PTC_Header = ['Name','Policy','Policy_Status','Test','Tier2PayorName','Tier2PayorID','Tier4PayorName','Tier4PayorID','QDX_InsPlan_Code','Financial_Category','Line_of_Business']
     test_criteria = criteria_enum[criteria_enum.Test==i].SFDC_API_Name.unique()  # test_criteria is a array
     #criteria_condition = criteria_enum[criteria_enum.Test==i].Criteria_Enum.unique()
-    Wide_PTC = PTC[PTC.Test == i][PTC_Header + list(test_criteria)]   ## Test value is from PTC. this is extracting the Payers & PLans with PTC
+    Wide_PTC = PTC[PTC.Test == i][PTC_Header + list(test_criteria)]   ## Test value is from PTC. this is extracting the Payers & Plans with PTC
     
     for j in test_criteria:
         Wide_PTC[j] = Wide_PTC[j].fillna('')
@@ -50,6 +49,7 @@ for i in build:
         for k in criteria_enum[(criteria_enum.Test==i) & (criteria_enum.SFDC_API_Name==j)]['Criteria_Enum'].unique():
             melt_label.append(j +'='+ k)
     
+    #the empty PTC from master payer/plan cause trouble
     Test_Long_PTC = pd.melt(Wide_PTC, id_vars = PTC_Header, value_vars=melt_label, var_name='Criteria_Condition', value_name='Coverage')
     Test_Long_PTC['Criteria_SFDC_API'], Test_Long_PTC['Condition'] = Test_Long_PTC['Criteria_Condition'].str.split('=',1).str
     

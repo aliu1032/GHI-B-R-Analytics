@@ -6,7 +6,7 @@ import project_io_config as cfg
 
 pd.options.display.max_columns=999
 print ('PayorTestValidation :: start :: ',datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-cfg.refresh=1
+
 PTV = GData.getPTV('', cfg.input_file_path, cfg.refresh)
 
 PA_enum = pd.read_excel(cfg.prep_file_path+'Enum.xlsx', sheet_name = "PA_ENUM", encoding='utf-8-sig', usecols="A:C,E:F")

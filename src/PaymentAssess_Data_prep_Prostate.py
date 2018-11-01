@@ -3,6 +3,8 @@ Created on Aug 17, 2018
 
 @author: aliu
 '''
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
 
 import pandas as pd
 from datetime import datetime
@@ -17,7 +19,7 @@ pd.options.display.max_columns=999
 # Read Input data
 
 target = 'OLI_PTx.txt'
-Claim2Rev = pd.read_csv(cfg.output_file_path+target, sep="|", encoding="ISO-8859-1")
+Claim2Rev = pd.read_csv(cfg.output_file_path+target, sep="|", encoding= "ISO-8859-1")
 Claim2Rev.TestDeliveredDate = pd.to_datetime(Claim2Rev.TestDeliveredDate.astype(str), format = "%Y-%m-%d", errors='coerce')
 
 target = 'Wide_' + 'Prostate' +'_PTC.txt'
@@ -72,9 +74,11 @@ select_columns = [
  'HCPProvidedNumberOfPositiveCores',
  'NumberOf4Plus3Cores',  
  
+ 'IBC_Candidate_for_Adj_Chemo', 'SOMN_Status',
+ 
  'appealDenReason','appealDenReasonDesc', 'appealSuccess', 'appealResult',
  
- 'PreClaim_Failure'
+ 'priorAuthResult', 'priorAuthResult_Category','priorAuthNumber','PreClaim_Failure'
  ]
 
 OLI_data = Claim2Rev[(Claim2Rev.Test=='Prostate') &\
@@ -89,7 +93,10 @@ OLI_data['MedOnc_Order'] = (OLI_data[~OLI_data.Specialty.isnull()].Specialty == 
 OLI_data['IsOrderingHCPCTR'] = (OLI_data[~OLI_data.IsOrderingHCPCTR.isnull()].IsOrderingHCPCTR).map({1:'Yes', 0:'No'})
 
 OLI_data.loc[OLI_data.MaxPctOfTumorInvolvementInAnyCore == '> 50%', 'MaxPctOfTumorInvolvementInAnyCore'] = 'Greater than or Equal to 50%'
-OLI_data.loc[OLI_data.MaxPctOfTumorInvolvementInAnyCore == 'â�\x89¤ 50%','MaxPctOfTumorInvolvementInAnyCore'] = 'less than 50%'
+OLI_data.loc[OLI_data.MaxPctOfTumorInvolvementInAnyCore == 'Ã¢Â\x89Â¤ 50%','MaxPctOfTumorInvolvementInAnyCore'] = 'less than 50%'
+#compare_string = chr(8804) + ' 50%'
+#OLI_data.loc[OLI_data.MaxPctOfTumorInvolvementInAnyCore == compare_string,'MaxPctOfTumorInvolvementInAnyCore'] = 'less than 50%'
+#ord('≤')
 
 OLI_data.loc[OLI_data.SubmittedNCCNRisk == 'Favorable Intermediate', 'SubmittedNCCNRisk'] = 'Intermediate Favorable'
 OLI_data.loc[OLI_data.SubmittedNCCNRisk == 'Unfavorable Intermediate', 'SubmittedNCCNRisk'] = 'Intermediate Unfavorable'
@@ -288,10 +295,17 @@ def In_or_Out_1 (record):
     
     # kick it to 'OUT' if PTC is not available, either no PTC record or PTC is blank
     if record.MP_PTC_Available != 'Yes':
-        record['MP_InCriteria_1'] = '.Out'
+        record['MP_InCriteria'] = '..Out'
         for i in list(Prostate_compare.keys()):
             comparing = Prostate_compare[i][7:-3] + '_coverage'
-            record[comparing] = '.Out'
+            record[comparing] = '..Out'
+            
+        comparing = 'PA_requirement_coverage'        
+        if record['PreClaim_Failure'] == 'Failure':
+            record[comparing] = '..Out'
+        else: # blank and non failure
+            record[comparing] = '.In'
+            
         return(record)
     
     InCriteria_1_temp = [] 
@@ -301,32 +315,35 @@ def In_or_Out_1 (record):
         
         if (record[i] != '') and (record[i] != 'Unknown'):  # Patient clinical criteria is captured in OLI, then compare
             if (type(record[Prostate_compare[i]]) == list):   # PTC clinical criteria is entered
-                record[comparing] = '..In' if (record[i] in record[Prostate_compare[i]]) else '.Out'
+                record[comparing] = '.In' if (record[i] in record[Prostate_compare[i]]) else '..Out'
                 InCriteria_1_temp.append((record[i] in record[Prostate_compare[i]]))
             else:                                        
-                record[comparing] = '.Criteria NA'  # PTC clinical criteria is blank
+                record[comparing] = '.In'
+                record[Prostate_compare[i]] = 'Unspecified policy'  # PTC clinical criteria is blank
                 # by pass when both patient & ptc have no information
                 
         else:                                            # Patient clinical criteria is unavailable
             if (type(record[Prostate_compare[i]]) == list):   # PTC clinical criteria is entered
-                record[comparing] = '.Out'
+                record[comparing] = '..Out'
                 InCriteria_1_temp.append(0)          # Patient clinical criteria is not captured in OLI, set to 'Out' as no information to compare
             else:
-                record[comparing] = 'Patient & Criteria NA'
+                record[comparing] = '.In'
+                record[Prostate_compare[i]] = 'Unspecified policy'
                 # by pass when both patient & ptc have no information
 
     for i in list(Prostate_compare.keys())[-2:]:
         comparing = Prostate_compare[i][7:-3] + '_coverage'
         if record[i] != '' and (record[i] != 'Unknown'):
             if (type(record[Prostate_compare[i]] == list)):
-                record[comparing] = '..In' if (record[i] in record[Prostate_compare[i]]) else '.Out'
+                record[comparing] = '.In' if (record[i] in record[Prostate_compare[i]]) else '..Out'
             else:
-                record[comparing] = '.Criteria NA'
+                record[comparing] = '.In'
+                record[Prostate_compare[i]] = 'Unspecified policy'
         else:
             if (type(record[Prostate_compare[i]]) == list):   # PTC clinical criteria is entered
-                record[comparing] = '.Out'
+                record[comparing] = '..Out'
             else:
-                record[comparing] = 'Patient & Criteria NA'
+                record[Prostate_compare[i]] = 'Unspecified policy'
 
     # Quadax PreClaim status precede GHI PA Required Flag
     # compare PTV.OSM_PA_Required__c.unique() with PreClaim_Failure
@@ -336,21 +353,21 @@ def In_or_Out_1 (record):
     comparing = 'PA_requirement_coverage'
     
     if record['PreClaim_Failure'] == 'Failure':
-        record[comparing] = '.Out'
+        record[comparing] = '..Out'
         InCriteria_1_temp.append(0)
     else: # blank and non failure
-        record[comparing] = '..In'
+        record[comparing] = '.In'
         InCriteria_1_temp.append(1)
        
     
     # len(InCriteria_1_temp) is 0 when the Plan has no PTC
     # 0 in InCriteria_1_temp)) when at least 1 of the criteria is out
-    record['MP_Criteria_1_considered'] = len(InCriteria_1_temp)
+    record['MP_Criteria_considered'] = len(InCriteria_1_temp)
     
     if ((len(InCriteria_1_temp) == 0) or (0 in InCriteria_1_temp)):
-        record['MP_InCriteria_1'] = '.Out'
+        record['MP_InCriteria'] = '..Out'
     else:
-        record['MP_InCriteria_1'] = '..In'
+        record['MP_InCriteria'] = '.In'
  
     return(record)
 
@@ -423,18 +440,25 @@ def In_or_Out_2 (record):
     # len(InCriteria_1_temp) is 0 when the Plan has no PTC
     # 0 in InCriteria_1_temp)) when at least 1 of the criteria is out
     if ((len(InCriteria_2_temp) == 0) or (0 in InCriteria_2_temp)):
-        record['MP_InCriteria_2'] = '.Out'
+        record['MP_InCriteria_2'] = '..Out'
     else:
         record['MP_InCriteria_2'] = '..In'
  
     return(record)
 
-Data = Data.apply(lambda x: In_or_Out_2(x), axis=1)
+#Data = Data.apply(lambda x: In_or_Out_2(x), axis=1)
 
 
 ###################################################################
 # Write the output
 ####################################################################
+for i in Payor_view.Set.unique() :
+    #print (i)
+    code = Payor_view[Payor_view.Set==i].PayorID
+    join_column = Payor_view[Payor_view.Set==i].JoinWith.iloc[0]
+    
+    Data.loc[Data_for_Ops[join_column].isin(list(code)),i] = '1'
+
 output_file = 'In_or_Out_Prostate.txt'
 Data.to_csv(cfg.output_file_path+output_file, sep='|',index=False)
 

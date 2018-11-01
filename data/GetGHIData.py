@@ -463,6 +463,33 @@ def getOLIResult_Specimen (usage, folder, refresh = 1):
     return(output)
 
 #################################################
+#   Retrieve SOMN DocuSign Status               #
+#################################################
+def getSOMN_Status (usage, folder, refresh = 1):
+    
+    print ("function : get Order SOMN Status :: start :: ", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    print ('usage = ', usage,'\nrefresh = ', refresh, '\nfolder is ', folder, "\n\n")
+    
+    #server = 'EDWStage'    
+    database = 'StagingDB'
+    target = server + '_' + database + '_' + 'OLI_SOMN_Status.txt'
+    
+    if refresh:
+        cnxn = pyodbc.connect('Trusted_Connection=yes',DRIVER='{ODBC Driver 13 for SQL Server}',SERVER=server)
+
+        f = open(cfg.sql_folder + 'Recent_DocuSign_Status.sql')
+        tsql = f.read()
+        f.close()
+
+        output = pd.read_sql(tsql, cnxn)
+        output.to_csv(folder + target, sep='|', index=False)
+        
+    else:
+        output = pd.read_csv(folder + target, sep="|", encoding="ISO-8859-1")
+        
+    return(output)
+
+#################################################
 #   stgBills                                    #
 #################################################
 

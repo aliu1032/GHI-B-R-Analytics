@@ -19,6 +19,7 @@ pd.options.display.max_columns=999
 target = 'OLI_PTx.txt'
 Claim2Rev = pd.read_csv(cfg.output_file_path+target, sep="|", encoding="ISO-8859-1")
 Claim2Rev.TestDeliveredDate = pd.to_datetime(Claim2Rev.TestDeliveredDate.astype(str), format = "%Y-%m-%d", errors='coerce')
+Claim2Rev.OrderStartDate = pd.to_datetime(Claim2Rev.OrderStartDate.astype(str), format = "%Y-%m-%d", errors='coerce')
 
 target = 'Wide_' + 'IBC' +'_PTC.txt'
 PTC = pd.read_csv(cfg.input_file_path+target, sep="|", encoding="ISO-8859-1")
@@ -35,32 +36,7 @@ PTV_PA_enum = pd.read_excel(cfg.prep_file_path+'Enum.xlsx', sheet_name = "PA_ENU
 ## Procedure Type
 ## Age
 ## Tumor size
-'''
-select_columns = [
- 'OrderID', 'OLIID', 'Test',
- 'TestDeliveredDate', 'OrderStartDate',
- 
- 'Tier1PayorID', 'Tier1PayorName', 'Tier1Payor',
- 'Tier2PayorID', 'Tier2Payor', 'Tier2PayorName',
- 'Tier4PayorID', 'Tier4Payor', 'Tier4PayorName',
- 'QDXInsPlanCode', 'FinancialCategory',
- 
- 'Specialty',
- 'NodalStatus',
- 'ProcedureType',
- 'PatientAgeAtDiagnosis',
- 'HCPProvidedClinicalStage',
- 'SubmittedER',
- 'SubmittedHER2',
- 'SubmittedPR',
- 'MultiplePrimaries',
- 'IBC_TumorSizeCentimeters',
- 'SubmittedNCCNRisk', 'SFDCSubmittedNCCNRisk',
- 
- 'BillingCaseStatusSummary2', 'BillingCaseStatus',
- 'PreClaim_Failure'
- ]
-'''
+
 select_columns = [
     'OrderID', 'OLIID', 'Test',
     'TestDeliveredDate', 'OrderStartDate',
@@ -104,14 +80,14 @@ select_columns = [
 #    'MaxPctOfTumorInvolvementInAnyCore', 'NumberOf4Plus3Cores',
 #    'PreGPSManagementRecommendation', 'OtherPreGPSManagementRecommendation',
 
+    'IBC_Candidate_for_Adj_Chemo', 'SOMN_Status',
     'appealDenReason', 'appealDenReasonDesc', 'appealSuccess','appealResult', 
-    'priorAuthResult', 'priorAuthResult_Category',
-    'priorAuthNumber', 'PreClaim_Failure']
+    'priorAuthResult', 'priorAuthResult_Category','priorAuthNumber', 'PreClaim_Failure']
 
 
 OLI_data = Claim2Rev[(Claim2Rev.Test=='IBC') &\
                      ~(Claim2Rev.CurrentQDXTicketNumber.isnull()) &\
-                     (Claim2Rev.OrderStartDate >=' 2017-01-01')][select_columns].copy()
+                     (Claim2Rev.OrderStartDate >='2017-01-01')][select_columns].copy()
 
 #######################################
 # Standarized OLI Clinical Criteria   #
@@ -147,7 +123,7 @@ cond = (~OLI_data.IBC_TumorSizeCentimeters.isna()) &\
        (OLI_data.IBC_TumorSizeCentimeters > 5.0)
 OLI_data.loc[cond,'TumorSize'] = 'Size > 5.0 cm'
 
-OLI_data['MedOnc_Order'] = (OLI_data[~OLI_data.Specialty.isnull()].Specialty == 'Oncologist').map({True:'Med Onc Order', False:'Non-Med Onc Order'})
+OLI_data['MedOnc_Order'] = (OLI_data[~OLI_data.Specialty.isnull()].Specialty.isin(['Oncologist','Radiation Oncologist'])).map({True:'Med Onc Order', False:'Non-Med Onc Order'})
 
 '''
 Example: OR001072184 : Multi Tumor order
@@ -238,16 +214,20 @@ PTV_data.rename(columns = {'Name':'PTV'}, inplace=True)
 ########################################################
 # Connect the OLI record with the Plan PTC record 
 ########################################################
+### something wrong with the merge, it has more rows after the merge
+### there are duplicate OLI ID isn the OLI_Data
 
 Data = pd.merge(OLI_data, MP_PTC_data, how='left', on = ['Tier4PayorID', 'Test'])
 #Data['MP_PTC_Available'] = 'Yes'
 Data.loc[Data.MP_PTC.isnull(),'MP_PTC_Available'] = 'No'
 Data['MP_PTC_Available'] = Data['MP_PTC_Available'].fillna('Yes')
 
+
 Data = pd.merge(Data, CT_PTC_data, how='left', on = ['Tier4PayorID', 'Test'])
 #Data['CT_PTC_Available'] = 'Yes'
 Data.loc[Data.CT_PTC.isnull(),'CT_PTC_Available'] = 'No'
 Data['CT_PTC_Available'] = Data['CT_PTC_Available'].fillna('Yes')
+
 
 Data = pd.merge(Data, PTV_data, how='left', on = ['Tier4PayorID', 'Test'])
 Data['PTV_Available'] = 'Yes'
@@ -315,7 +295,7 @@ for i in list(IBC_compare.keys()):
     Data[IBC_compare[i]] = Data[IBC_compare[i]].fillna("")
     Data[IBC_compare[i]] = Data[IBC_compare[i]].apply(lambda x : x.split(sep=";") if x else '')
 
-Data['PreClaim_Failure'] = Data['PreClaim_Failure'].fillna("Unknown") 
+Data['PreClaim_Failure'] = Data['PreClaim_Failure'].fillna("NA") 
 Data['PA_Required'] = Data['PA_Required'].fillna('.PTV unknown')
 
 ####################################################################
@@ -337,10 +317,17 @@ def In_or_Out_1 (record):
     
     # kick it to 'OUT' if PTC is not available, either no PTC record or PTC is blank
     if record.MP_PTC_Available != 'Yes':
-        record['MP_InCriteria_1'] = '.Out'
+        record['MP_InCriteria'] = '..Out'
         for i in list(IBC_compare.keys()):
             comparing = IBC_compare[i][7:-3] + '_coverage'
-            record[comparing] = '.Out'
+            record[comparing] = '..Out'
+        
+        comparing = 'PA_requirement_coverage'
+        if record['PreClaim_Failure'] == 'Failure':
+            record[comparing] = '..Out'
+        else: # blank and non failure
+            record[comparing] = '.In'
+            
         return(record)
     
     InCriteria_1_temp = [] 
@@ -350,18 +337,22 @@ def In_or_Out_1 (record):
         
         if (record[i] != '') and (record[i] != 'Unknown'):  # Patient clinical criteria is captured in OLI, then compare
             if (type(record[IBC_compare[i]]) == list):   # PTC clinical criteria is entered
-                record[comparing] = '..In' if (record[i] in record[IBC_compare[i]]) else '.Out'
+                record[comparing] = '.In' if (record[i] in record[IBC_compare[i]]) else '..Out'
                 InCriteria_1_temp.append((record[i] in record[IBC_compare[i]]))
             else:                                        # PTC clinical criteria is blank
-                record[comparing] = '.Criteria NA'
+                record[comparing] = '.In'
+                #record[comparing] = 'Unspecified policy' ### update the MP_Node__c
+                record[IBC_compare[i]] = 'Unspecified policy'
                 # by pass when both patient & ptc have no information
                 
         else:                                            # Patient clinical criteria is unavailable
             if (type(record[IBC_compare[i]]) == list):   # PTC clinical criteria is entered
-                record[comparing] = '.Out'
+                record[comparing] = '..Out'
                 InCriteria_1_temp.append(0)          # Patient clinical criteria is not captured in OLI, set to 'Out' as no information to compare
             else:
-                record[comparing] = 'Patient & Criteria NA'
+                record[comparing] = '.In'
+                #record[comparing] = 'Patient unknown & Unspecified policy'   ## update the MP_GHI____c
+                record[IBC_compare[i]] = 'Unspecified policy'
                 # by pass when both patient & ptc have no information
 
     # evaluate multi tumor coverage, only evaluate OLI which multi tumor = Yes. All IBC OLIs either Yes or No multiple primaries
@@ -373,11 +364,13 @@ def In_or_Out_1 (record):
     if record['MultiplePrimaries'] == 'Yes':
         if (type(record[IBC_compare[i]]) == list):
             InCriteria_1_temp.append((record['MultiplePrimaries'] in record['MP_GHI_MultiTumor__c']))
-            record[comparing] = '..In' if (record['MultiplePrimaries'] in record['MP_GHI_MultiTumor__c']) else '.Out'
+            record[comparing] = '.In' if (record['MultiplePrimaries'] in record['MP_GHI_MultiTumor__c']) else '..Out'
         else:
-            record[comparing] = '.Criteria NA'
+            record[comparing] = '.In'
+            #record[comparing] = 'Unspecified policy'
+            record['MultiplePrimaries'] = 'Unspecified policy'
     else: # OLI Multiple Primaries = No
-        record[comparing] = '..In'
+        record[comparing] = '.In'
     
     
     '''    
@@ -410,21 +403,21 @@ def In_or_Out_1 (record):
     comparing = 'PA_requirement_coverage'
     
     if record['PreClaim_Failure'] == 'Failure':
-        record[comparing] = '.Out'
+        record[comparing] = '..Out'
         InCriteria_1_temp.append(0)
     else: # blank and non failure
-        record[comparing] = '..In'
+        record[comparing] = '.In'
         InCriteria_1_temp.append(1)
        
     
     # len(InCriteria_1_temp) is 0 when the Plan has no PTC
     # 0 in InCriteria_1_temp)) when at least 1 of the criteria is out
-    record['MP_Criteria_1_considered'] = len(InCriteria_1_temp)
+    record['MP_Criteria_considered'] = len(InCriteria_1_temp)
     
     if ((len(InCriteria_1_temp) == 0) or (0 in InCriteria_1_temp)):
-        record['MP_InCriteria_1'] = '.Out'
+        record['MP_InCriteria'] = '..Out'
     else:
-        record['MP_InCriteria_1'] = '..In'
+        record['MP_InCriteria'] = '.In'
  
     return(record)
 
@@ -516,12 +509,20 @@ def In_or_Out_2 (record):
  
     return(record)
 
-Data = Data.apply(lambda x: In_or_Out_2(x), axis=1)
+#Data = Data.apply(lambda x: In_or_Out_2(x), axis=1)
 
 
 ###################################################################
 # Write the output
 ####################################################################
+for i in Payor_view.Set.unique() :
+    #print (i)
+    code = Payor_view[Payor_view.Set==i].PayorID
+    join_column = Payor_view[Payor_view.Set==i].JoinWith.iloc[0]
+    
+    Data.loc[Data_for_Ops[join_column].isin(list(code)),i] = '1'
+
+
 output_file = 'In_or_Out_IBC.txt'
 Data.to_csv(cfg.output_file_path+output_file, sep='|',index=False)
 
