@@ -6,6 +6,8 @@ Created on Sep 7, 2017
 - Sep 15 : adding Appeal data prep steps;
 '''
 
+
+
 import pyodbc
 import pandas as pd
 import numpy as np
