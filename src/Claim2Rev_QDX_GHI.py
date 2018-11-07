@@ -26,8 +26,6 @@ Constraints:
    For OLI data, use EDWDB in StagingDB. Only taking OLI and patient clinical data from EDWDB 
    
 '''
-
-
 import pandas as pd
 from datetime import datetime
 import time
@@ -738,13 +736,55 @@ OLI_detail = OLI_data[['OLIID','Test','TestDeliveredDate'
 TXN_Detail = pd.merge(TXN_Detail,OLI_detail,
                        how='left', left_on='OLIID', right_on='OLIID')
 
-#########################################
-# Extract Data sets for end users       #
-#########################################
 
-# Export a set for Tableau reports
-Claim2Rev_tableau = Claim2Rev[['OrderID', 'OLIID', 'Test', 
-        'OrderStartDate', 'TestDeliveredDate', 'CurrentQDXTicketNumber',
+##################################################################################
+# Extract Data sets for end users                                                #
+##################################################################################
+
+#########################################
+#   Add the Payor View Set assignment   #
+#########################################
+prep_file_name = "Payor-ViewSetAssignment.xlsx"
+Payor_view = pd.read_excel(cfg.prep_file_path+prep_file_name, sheet_name = "SetAssignment", usecols="B:D", encoding='utf-8-sig')
+
+Payor_choose_set = list(Payor_view.Set.unique())
+PrimaryPayor_choose_set = ['PrimaryIns_' + i for i in Payor_choose_set]
+    
+for i in Payor_view.Set.unique() :
+    #print (i)
+    code = Payor_view[Payor_view.Set==i].PayorID
+    join_column = Payor_view[Payor_view.Set==i].JoinWith.iloc[0]
+    
+#    Claim2Rev_tableau.loc[Claim2Rev_tableau[join_column].isin(list(code)),i] = '1'
+    Claim2Rev.loc[Claim2Rev[join_column].isin(list(code)),i] = '1'
+    TXN_Detail.loc[TXN_Detail[join_column].isin(list(code)),i] = '1'
+    
+### need to create PrimaryInsSet
+for i in Payor_view.Set.unique():
+    code = Payor_view[Payor_view.Set==i].PayorID
+    join_column = Payor_view[Payor_view.Set==i].JoinWith.iloc[0] ## JoinWith PrimaryInsTier2PayorID, ##PrimaryInsTier1PayorID, PrimaryInsFinancialCategory
+    
+    mapping = {'Tier2PayorID':'PrimaryInsTier2PayorID', 'Tier1PayorID':'PrimaryInsTier1PayorID', 'FinancialCategory':'PrimaryInsFinancialCategory'}
+    primaryins_set = 'PrimaryIns_' + i
+    
+    Claim2Rev.loc[Claim2Rev[mapping[join_column]].isin(list(code)),primaryins_set] = '1'
+    TXN_Detail.loc[TXN_Detail[mapping[join_column]].isin(list(code)),primaryins_set] = '1'
+
+
+print ('Claim2Rev_QDX_GHI :: write OLITXT_Detail', len(TXN_Detail), 'rows :: start ::', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+output_file = 'OLI_TXN_Detail.txt'
+TXN_Detail.to_csv(cfg.output_file_path+output_file, sep='|',index=False)
+
+print ('Claim2Rev_QDX_GHI :: write Claim2Rev report ', len(Claim2Rev), 'rows :: start ::', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+output_file = 'Claim2Rev.txt'
+Claim2Rev.to_csv(cfg.output_file_path+output_file, sep='|',index=False)
+
+##########################################
+# Data set for Tableau for Managed Care  #
+##########################################
+
+Claim2Rev_tableau_4ManagedCare = Claim2Rev[['OrderID', 'OLIID', 'Test', 
+        'OrderStartDate', 'TestDeliveredDate', 'CurrentQDXTicketNumber','CurrentQDXCaseNumber',
         'BillingCaseStatusSummary2', 'BillingCaseStatusCode', 'BillingCaseStatus',
         'BilledCurrency', 'ListPrice', 'ContractedPrice', 'Total Outstanding',
         'Total Billed', 'Charge',
@@ -764,21 +804,52 @@ Claim2Rev_tableau = Claim2Rev[['OrderID', 'OLIID', 'Test',
         'Tier2Payor','Tier2PayorID', 'Tier2PayorName',
         'Tier4Payor','Tier4PayorID', 'Tier4PayorName', 
         'FinancialCategory', 'QDXInsPlanCode',
-        
-        # PrimaryIns for Appeal Report
-        'PrimaryInsTier1Payor', 'PrimaryInsTier1PayorID', 'PrimaryInsTier1PayorName',
-        'PrimaryInsTier2Payor', 'PrimaryInsTier2PayorID', 'PrimaryInsTier2PayorName', 
-        'PrimaryInsTier4Payor', 'PrimaryInsTier4PayorID', 'PrimaryInsTier4PayorName',  'PrimaryInsFinancialCategory','PrimaryInsPlan_QDXCode',
             
         'Reportable', 'IsCharge', 'TestDelivered',
         'IsClaim', 'IsFullyAdjudicated',
         'IsContract', 'IsAccrual', 'NSInCriteria',
        
-        'Status',
-
         'TerritoryRegion', 'OrderingHCPState',
+                
+        'ReportingGroup',
+        'RecurrenceScore', 'Specialty', 'RiskGroup', 'NodalStatus',
+        'EstimatedNCCNRisk', 'SubmittedNCCNRisk']
+        
+        + Payor_choose_set        
+        ].copy()
 
-        'CurrentQDXCaseNumber',
+# repeat columns for Tableau color purpose
+dup = ['USDAccrualRevenue', 'USDCashRevenue',
+        'Total Payment', 'Total Outstanding', 'Total Adjustment',
+        'PayorPaid','PatientPaid']
+for i in dup:
+    add_column = i + '_'
+    Claim2Rev_tableau_4ManagedCare[add_column] = Claim2Rev_tableau_4ManagedCare[i]
+
+print ('Claim2Rev_QDX_GHI :: write Claim2Rev_Tableau_4ManagedCare report ', len(Claim2Rev_tableau_4ManagedCare), 'rows :: start ::', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+output_file = 'Claim2Rev_Tableau_4MangedCare.txt'
+Claim2Rev_tableau_4ManagedCare.to_csv(cfg.output_file_path+output_file, sep='|',index=False)
+
+
+############################################
+# Data set for Tableau for Prostate Appeal #
+############################################
+
+cond = Claim2Rev.Test == 'Prostate'
+Claim2Rev_tableau_4Appeal = Claim2Rev[cond][['OrderID', 'OLIID', 'Test', 
+        'OrderStartDate', 'TestDeliveredDate', 'CurrentQDXTicketNumber','CurrentQDXCaseNumber']
+        + PrimaryPayor_choose_set + [
+        'BillingCaseStatusSummary2', 'BillingCaseStatusCode', 'BillingCaseStatus',
+        
+        'PrimaryInsTier1Payor', 'PrimaryInsTier1PayorID', 'PrimaryInsTier1PayorName',
+        'PrimaryInsTier2Payor', 'PrimaryInsTier2PayorID', 'PrimaryInsTier2PayorName', 
+        'PrimaryInsTier4Payor', 'PrimaryInsTier4PayorID', 'PrimaryInsTier4PayorName', 
+        'PrimaryInsFinancialCategory','PrimaryInsPlan_QDXCode',
+            
+        'IsClaim', 'IsFullyAdjudicated',
+       
+        'TerritoryRegion', 'OrderingHCPState',
+        
         'A1_Status', 'A2_Status', 'A3_Status', 'A4_Status', 'A5_Status',
         'ER_Status', 'L1_Status', 'L2_Status', 'L3_Status',
         
@@ -791,64 +862,52 @@ Claim2Rev_tableau = Claim2Rev[['OrderID', 'OLIID', 'Test',
         
         'ReportingGroup','RecurrenceScore', 'Specialty',
         'RiskGroup', 'NodalStatus','EstimatedNCCNRisk', 'SubmittedNCCNRisk'
-        
-        , 'Rerouted_Ticket','Reroute_ChangedFC'
-        ]].copy()
-                
-#Export a dataset in excel for Jodi, includes Domestic Orders
-Claim2Rev_USD_excel = Claim2Rev[Claim2Rev.BusinessUnit == 'Domestic'][['OrderID',
-        'OLIID', 'Test','OrderStartDate', 'TestDeliveredDate', 'CurrentQDXTicketNumber',
-        'BillingCaseStatusSummary2', 'BillingCaseStatusCode', 'BillingCaseStatus', 
-        'BilledCurrency', 
-        'ListPrice', 'ContractedPrice', 'Total Outstanding',
-        'Total Billed', 'Charge', 'Charged in Error',
-
-        'Total Payment',
-        'PayorPaid','PatientPaid','Refund & Refund Reversal',
-
-        'Total Adjustment',
-        'Revenue Impact Adjustment', 'Insurance Adjustment',
-        'GHI Adjustment', 'All other Adjustment',
-
-        'AllowedAmt',
-        
-        'Revenue', 'AccrualRevenue', 'CashRevenue',
-        'USDRevenue', 'USDAccrualRevenue', 'USDCashRevenue', 
-                
-        'Tier1PayorID','Tier1PayorName', 'Tier1Payor',
-        'Tier2PayorID', 'Tier2Payor','Tier2PayorName',  
-        'Tier4PayorID', 'Tier4Payor','Tier4PayorName',
-        'QDXInsPlanCode',  'FinancialCategory',
-        #'LineOfBenefit',
-        'PrimaryInsTier1Payor', 'PrimaryInsTier1PayorID', 'PrimaryInsTier1PayorName',
-        'PrimaryInsTier2Payor', 'PrimaryInsTier2PayorID', 'PrimaryInsTier2PayorName', 
-        'PrimaryInsTier4Payor', 'PrimaryInsTier4PayorID', 'PrimaryInsTier4PayorName',  'PrimaryInsFinancialCategory',
-                     
-        'Status', #'Status Notes',
-
-        'BusinessUnit', 'InternationalArea', 'Division', 'Country', 'OrderingHCPName',
-        'Territory', 'TerritoryRegion', 'TerritoryArea',
-        'OrderingHCPCity', 'OrderingHCPState', 'OrderingHCPCountry',
-        'IsOrderingHCPCTR', 'IsOrderingHCPPECOS', 
-        
-        'ReportingGroup', 'RecurrenceScore', 'Specialty','RiskGroup', 
-        'NodalStatus','EstimatedNCCNRisk',
-
-        'CurrentQDXCaseNumber', 'appealCampaignCode',
-        'A1', 'A2', 'A3', 'A4', 'A5', 'ER', 'L1', 'L2', 'L3',
-
-        'Last Appeal level', 'firstappealEntryDt',
-        'appealDenReason','appealDenReasonDesc',
-        'appealAmtChg', 'appealAmtChgExp',
-        'appealAmtAllow', 'appealAmtClmRec', 'appealAmt', 'appealAmtAplRec',
-        'appealRptDt', 'appealSuccess', 'appealCurrency', 'appealResult',
-        'Specialty','NodalStatus','EstimatedNCCNRisk','SubmittedNCCNRisk',
-
-        'priorAuthCaseNum','priorAuthDate',
-        'priorAuthEnteredDt','priorAuthEnteredTime',
-        'priorAuthResult', 'priorAuthResult_Category'
         ]]
 
+print ('Claim2Rev_QDX_GHI :: write Claim2Rev_4_Tableau report ', len(Claim2Rev_tableau_4Appeal), 'rows :: start ::', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+output_file = 'Claim2Rev_Tableau_4Appeal_Prostate.txt'
+Claim2Rev_tableau_4Appeal.to_csv(cfg.output_file_path+output_file, sep='|',index=False)
+
+############################################
+# Data set for Tableau for IBC Appeal      #
+############################################
+
+cond = Claim2Rev.Test == 'IBC'
+Claim2Rev_tableau_4Appeal = Claim2Rev[cond][['OrderID', 'OLIID', 'Test', 
+        'OrderStartDate', 'TestDeliveredDate', 'CurrentQDXTicketNumber', 'CurrentQDXCaseNumber']
+        + PrimaryPayor_choose_set + [
+        
+        'BillingCaseStatusSummary2', 'BillingCaseStatusCode', 'BillingCaseStatus',
+        
+        'PrimaryInsTier1Payor', 'PrimaryInsTier1PayorID', 'PrimaryInsTier1PayorName',
+        'PrimaryInsTier2Payor', 'PrimaryInsTier2PayorID', 'PrimaryInsTier2PayorName', 
+        'PrimaryInsTier4Payor', 'PrimaryInsTier4PayorID', 'PrimaryInsTier4PayorName',  'PrimaryInsFinancialCategory','PrimaryInsPlan_QDXCode',
+            
+        'IsClaim', 'IsFullyAdjudicated',
+        'TerritoryRegion', 'OrderingHCPState',
+
+        'A1_Status', 'A2_Status', 'A3_Status', 'A4_Status', 'A5_Status',
+        'ER_Status', 'L1_Status', 'L2_Status', 'L3_Status',
+        
+        'Last Appeal level', 'firstappealEntryDt','appealRptDt',
+        'appealDenReason','appealDenReasonDesc',
+        'appealAmt', 'appealAmtAplRec',
+        'appealResult',
+        
+        'IsAppeal','CompletedAppeal','Failed','Succeed','In Process','Removed',
+        
+        'ReportingGroup','RecurrenceScore', 'Specialty',
+        'RiskGroup', 'NodalStatus','EstimatedNCCNRisk', 'SubmittedNCCNRisk'
+        ]]
+
+print ('Claim2Rev_QDX_GHI :: write Claim2Rev_4_Tableau report ', len(Claim2Rev_tableau_4Appeal), 'rows :: start ::', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+output_file = 'Claim2Rev_Tableau_4Appeal_IBC.txt'
+Claim2Rev_tableau_4Appeal.to_csv(cfg.output_file_path+output_file, sep='|',index=False)
+
+    
+#########################################
+# Data set for Payment Risk Assessment  #
+#########################################
 OLI_PTx = Claim2Rev[Claim2Rev.BusinessUnit == 'Domestic']\
         [['OrderID', 'OLIID', 'Test', 
         'TestDeliveredDate',
@@ -912,21 +971,90 @@ OLI_PTx = Claim2Rev[Claim2Rev.BusinessUnit == 'Domestic']\
         'priorAuthResult','priorAuthResult_Category','priorAuthNumber', 'PreClaim_Failure'
         ]]
 
+
+print ('Claim2Rev_QDX_GHI :: write Claim2Rev output for Payment Assessment ', len(OLI_PTx), 'rows :: start ::', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+output_file = 'OLI_PTx.txt'
+OLI_PTx.to_csv(cfg.output_file_path+output_file, sep='|',index=False)
+
+########################################################
+# Data set in Excel for Billing & Reimbursement users  #
+########################################################               
+#Export a dataset in excel for Jodi, includes Domestic Orders
+cond = (Claim2Rev.BusinessUnit == 'Domestic')
+Claim2Rev_USD_excel = Claim2Rev[cond][['OrderID',
+        'OLIID', 'Test','OrderStartDate', 'TestDeliveredDate', 'CurrentQDXTicketNumber',
+        'BillingCaseStatusSummary2', 'BillingCaseStatusCode', 'BillingCaseStatus', 
+        'BilledCurrency', 
+        'ListPrice', 'ContractedPrice', 'Total Outstanding',
+        'Total Billed', 'Charge', 'Charged in Error',
+
+        'Total Payment',
+        'PayorPaid','PatientPaid','Refund & Refund Reversal',
+
+        'Total Adjustment',
+        'Revenue Impact Adjustment', 'Insurance Adjustment',
+        'GHI Adjustment', 'All other Adjustment',
+
+        'AllowedAmt',
+        
+        'Revenue', 'AccrualRevenue', 'CashRevenue',
+        'USDRevenue', 'USDAccrualRevenue', 'USDCashRevenue', 
+                
+        'Tier1PayorID','Tier1PayorName', 'Tier1Payor',
+        'Tier2PayorID', 'Tier2Payor','Tier2PayorName',  
+        'Tier4PayorID', 'Tier4Payor','Tier4PayorName',
+        'QDXInsPlanCode',  'FinancialCategory',
+        #'LineOfBenefit',
+        'PrimaryInsTier1Payor', 'PrimaryInsTier1PayorID', 'PrimaryInsTier1PayorName',
+        'PrimaryInsTier2Payor', 'PrimaryInsTier2PayorID', 'PrimaryInsTier2PayorName', 
+        'PrimaryInsTier4Payor', 'PrimaryInsTier4PayorID', 'PrimaryInsTier4PayorName',  'PrimaryInsFinancialCategory',
+                     
+        'Status', #'Status Notes',
+
+        'BusinessUnit', 'InternationalArea', 'Division', 'Country', 'OrderingHCPName',
+        'Territory', 'TerritoryRegion', 'TerritoryArea',
+        'OrderingHCPCity', 'OrderingHCPState', 'OrderingHCPCountry',
+        'IsOrderingHCPCTR', 'IsOrderingHCPPECOS', 
+        
+        'ReportingGroup', 'RecurrenceScore', 'Specialty','RiskGroup', 
+        'NodalStatus','EstimatedNCCNRisk',
+
+        'CurrentQDXCaseNumber', 'appealCampaignCode',
+        'A1', 'A2', 'A3', 'A4', 'A5', 'ER', 'L1', 'L2', 'L3',
+
+        'Last Appeal level', 'firstappealEntryDt',
+        'appealDenReason','appealDenReasonDesc',
+        'appealAmtChg', 'appealAmtChgExp',
+        'appealAmtAllow', 'appealAmtClmRec', 'appealAmt', 'appealAmtAplRec',
+        'appealRptDt', 'appealSuccess', 'appealCurrency', 'appealResult',
+        'Specialty','NodalStatus','EstimatedNCCNRisk','SubmittedNCCNRisk',
+
+        'priorAuthCaseNum','priorAuthDate',
+        'priorAuthEnteredDt','priorAuthEnteredTime',
+        'priorAuthResult', 'priorAuthResult_Category'
+        ]]
+
+
 #Extract data set of IBC Appeals Detail 
 Cond = (Claim2Rev.BusinessUnit == 'Domestic') & \
        (Claim2Rev.Test == 'IBC') & (~Claim2Rev.appealResult.isnull())
        
-IBC_Appeals_Detail = Claim2Rev[Cond][['Tier1PayorID','Tier1PayorName',
-                                             'Tier2PayorID', 'Tier2PayorName',
-                                             'Tier4PayorID', 'Tier4PayorName',
-                                             'FinancialCategory',
-                                             'appealResult', 'NodalStatus','appealDenReasonDesc','TestDeliveredDate',
-                                             'BillingCaseStatusSummary2','CurrentQDXCaseNumber','OLIID',
-                                             'A1', 'A2', 'A3', 'A4', 'A5', 'ER', 'L1', 'L2', 'L3',
-                                             'appealAmt','appealAmtAplRec']]
+IBC_Appeals_Detail = Claim2Rev[Cond][[
+                                      'PrimaryInsTier1PayorID', 'PrimaryInsTier1PayorName',
+                                      'PrimaryInsTier2PayorID', 'PrimaryInsTier2PayorName', 
+                                      'PrimaryInsTier4PayorID', 'PrimaryInsTier4PayorName', 
+                                      'PrimaryInsFinancialCategory',
+
+                                      'appealResult', 'NodalStatus','appealDenReasonDesc','TestDeliveredDate',
+                                      'BillingCaseStatusSummary2','CurrentQDXCaseNumber','OLIID',
+                                      'A1', 'A2', 'A3', 'A4', 'A5', 'ER', 'L1', 'L2', 'L3',
+                                      'appealAmt','appealAmtAplRec']]
 #Rename Columns
-IBC_Appeals_Detail.columns =  [['Tier1PayorID','Tier1PayorName','Tier2PayorID', 'Tier2PayorName',
-                                'Tier4PayorID', 'Tier4PayorName','FinancialCategory',
+IBC_Appeals_Detail.columns =  [[
+                                'PrimaryInsTier1PayorID','PrimaryInsTier1PayorName',
+                                'PrimaryInsTier2PayorID', 'PrimaryInsTier2PayorName',
+                                'PrimaryInsTier4PayorID', 'PrimaryInsTier4PayorName',
+                                'PrimaryInsFinancialCategory',
                                 'Appeal Result', 'NodalStatus','Appeal Den Reason Desc','TestDeliveredDate',
                                 'Billing Case','QDX Case Number','Oliid',
                                 'A1', 'A2', 'A3', 'A4', 'A5', 'ER', 'L1', 'L2', 'L3',
@@ -936,77 +1064,30 @@ IBC_Appeals_Detail.columns =  [['Tier1PayorID','Tier1PayorName','Tier2PayorID', 
 Cond = (Claim2Rev.BusinessUnit == 'Domestic') & \
        (Claim2Rev.Test == 'Prostate') & (~Claim2Rev.appealResult.isnull())
        
-Prostate_Appeals_Detail = Claim2Rev[Cond][['Tier1PayorID','Tier1PayorName',
-                                             'Tier2PayorID', 'Tier2PayorName',
-                                             'Tier4PayorID', 'Tier4PayorName',
-                                             'FinancialCategory',
-                                             'appealResult', 'EstimatedNCCNRisk','appealDenReasonDesc','TestDeliveredDate',
-                                             'BillingCaseStatusSummary2','CurrentQDXCaseNumber','OLIID',
-                                             'A1', 'A2', 'A3', 'A4', 'A5', 'ER', 'L1', 'L2', 'L3',
-                                             'appealAmt','appealAmtAplRec']]
+Prostate_Appeals_Detail = Claim2Rev[Cond][[
+                                            'PrimaryInsTier1PayorID', 'PrimaryInsTier1PayorName',
+                                            'PrimaryInsTier2PayorID', 'PrimaryInsTier2PayorName', 
+                                            'PrimaryInsTier4PayorID', 'PrimaryInsTier4PayorName', 
+                                            'PrimaryInsFinancialCategory',
+                                            'appealResult', 'EstimatedNCCNRisk','appealDenReasonDesc','TestDeliveredDate',
+                                            'BillingCaseStatusSummary2','CurrentQDXCaseNumber','OLIID',
+                                            'A1', 'A2', 'A3', 'A4', 'A5', 'ER', 'L1', 'L2', 'L3',
+                                            'appealAmt','appealAmtAplRec']]
 #Rename columns
-Prostate_Appeals_Detail.columns = [['Tier1PayorID','Tier1PayorName','Tier2PayorID', 'Tier2PayorName',
-                                'Tier4PayorID', 'Tier4PayorName','FinancialCategory',
+Prostate_Appeals_Detail.columns = [[
+                                'PrimaryInsTier1PayorID', 'PrimaryInsTier1PayorName',
+                                'PrimaryInsTier2PayorID', 'PrimaryInsTier2PayorName',
+                                'PrimaryInsTier4PayorID', 'PrimaryInsTier4PayorName',
+                                'PrimaryInsFinancialCategory',
                                 'Appeal Result', 'EstimatedNCCNRisk','Appeal Den Reason Desc','TestDeliveredDate',
                                 'Billing Case','QDX Case Number','Oliid',
                                 'A1', 'A2', 'A3', 'A4', 'A5', 'ER', 'L1', 'L2', 'L3',
                                 'Appeal Amt','Appeal Amt Apl Rec']]  
 
-#########################################
-#   Add the Payor View Set assignment   #
-#########################################
-prep_file_name = "Payor-ViewSetAssignment.xlsx"
-Payor_view = pd.read_excel(cfg.prep_file_path+prep_file_name, sheet_name = "SetAssignment", usecols="B:D", encoding='utf-8-sig')
 
-for i in Payor_view.Set.unique() :
-    #print (i)
-    code = Payor_view[Payor_view.Set==i].PayorID
-    join_column = Payor_view[Payor_view.Set==i].JoinWith.iloc[0]
-    
-    Claim2Rev_tableau.loc[Claim2Rev_tableau[join_column].isin(list(code)),i] = '1'
-    Claim2Rev.loc[Claim2Rev_tableau[join_column].isin(list(code)),i] = '1'
-    TXN_Detail.loc[TXN_Detail[join_column].isin(list(code)),i] = '1'
-    
-### need to create PrimaryInsSet
-for i in Payor_view.Set.unique():
-    code = Payor_view[Payor_view.Set==i].PayorID
-    join_column = Payor_view[Payor_view.Set==i].JoinWith.iloc[0] ## JoinWith PrimaryInsTier2PayorID, ##PrimaryInsTier1PayorID, PrimaryInsFinancialCategory
-    
-    mapping = {'Tier2PayorID':'PrimaryInsTier2PayorID', 'Tier1PayorID':'PrimaryInsTier1PayorID', 'FinancialCategory':'PrimaryInsFinancialCategory'}
-    primaryins_set = 'PrimaryIns' + '_' + i
-    
-    Claim2Rev_tableau.loc[Claim2Rev_tableau[mapping[join_column]].isin(list(code)),primaryins_set] = '1'
-    TXN_Detail.loc[TXN_Detail[mapping[join_column]].isin(list(code)),primaryins_set] = '1'
-
-#Claim2Rev_tableau.drop(['Tier2PayorID', 'Tier1PayorID'], axis=1, inplace=True)
-# repeat columns for Tableau color purpose
-dup = ['USDAccrualRevenue', 'USDCashRevenue',
-        'Total Payment', 'Total Outstanding', 'Total Adjustment',
-        'PayorPaid','PatientPaid']
-for i in dup:
-    add_column = i + '_'
-    Claim2Rev_tableau[add_column] = Claim2Rev_tableau[i]
-      
 ###############################################
 #     Write the columns into a excel file     #
 ###############################################
-
-print ('Claim2Rev_QDX_GHI :: write OLITXT_Detail', len(TXN_Detail), 'rows :: start ::', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-output_file = 'OLI_TXN_Detail.txt'
-TXN_Detail.to_csv(cfg.output_file_path+output_file, sep='|',index=False)
-
-print ('Claim2Rev_QDX_GHI :: write Claim2Rev_4_Tableau report ', len(Claim2Rev_tableau), 'rows :: start ::', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-output_file = 'Claim2Rev_4_Tableau.txt'
-Claim2Rev_tableau.to_csv(cfg.output_file_path+output_file, sep='|',index=False)
-
-print ('Claim2Rev_QDX_GHI :: write Claim2Rev report ', len(Claim2Rev), 'rows :: start ::', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-output_file = 'Claim2Rev.txt'
-Claim2Rev.to_csv(cfg.output_file_path+output_file, sep='|',index=False)
-
-print ('Claim2Rev_QDX_GHI :: write Claim2Rev output for Payment Assessment ', len(OLI_PTx), 'rows :: start ::', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-output_file = 'OLI_PTx.txt'
-OLI_PTx.to_csv(cfg.output_file_path+output_file, sep='|',index=False)
-
 
 print ('Claim2Rev_QDX_GHI :: write Claim2Rev USD xlsx report ', len(Claim2Rev_USD_excel), 'rows :: start ::', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 output_file = 'Claim2Rev_USD.xlsx'
@@ -1030,6 +1111,7 @@ Prostate_Appeals_Detail.to_excel(writer, index = False)
 writer.save()
 writer.close()
 
+'''
 #PreClaim Status for Ron's
 Cond = (Claim2Rev.BusinessUnit == 'Domestic') & \
         (Claim2Rev.TestDeliveredDate >= '2017-01-01') & \
@@ -1042,7 +1124,7 @@ writer = pd.ExcelWriter(cfg.output_file_path+output_file, engine='openpyxl', dat
 PreClaim_Status_SalesOps.to_excel(writer, index = False)
 writer.save()
 writer.close()
-
+'''
 ###############################################
 #    Writing a Data refresh log into Excel    #
 ###############################################

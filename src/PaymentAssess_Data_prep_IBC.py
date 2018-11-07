@@ -16,6 +16,7 @@ pd.options.display.max_columns=999
 
 ################################
 # Read Input data
+print("Reading Data")
 
 target = 'OLI_PTx.txt'
 Claim2Rev = pd.read_csv(cfg.output_file_path+target, sep="|", encoding="ISO-8859-1")
@@ -93,6 +94,9 @@ OLI_data = Claim2Rev[(Claim2Rev.Test=='IBC') &\
 #######################################
 # Standarized OLI Clinical Criteria   #
 #######################################
+
+print("Clean OLI Data")
+
 OLI_data.loc[OLI_data.NodalStatus == 'Node Negative','NodalStatus'] = 'Node Negative (pN0)'
 OLI_data.loc[OLI_data.NodalStatus == 'Micromets (pN1mi: 0.2 - 2.0mm)','NodalStatus'] = 'Micromets (pN1mi: 0.2 2.0mm)'
 OLI_data.loc[OLI_data.ProcedureType == 'Non-Biopsy','ProcedureType'] = 'Non Biopsy'
@@ -141,6 +145,7 @@ OL001097337 is test delivered and does not have a claim
 # there are 19 distinct clinical criteria in IBC PTC
 # 13 of the 19 has corresponding Patient data to compare with
 ########################################################
+print("Clean PTC & PTV data")
 
 select_columns = ['Name', 'Policy_Status',
 # 'Policy',
@@ -149,27 +154,27 @@ select_columns = ['Name', 'Policy_Status',
 # 'Tier4PayorName',
  'Tier4PayorID',
 # 'QDX_InsPlan_Code', 'Financial_Category', 'Line_of_Business',
-# 'GHI_RecentlyNewlyDiagnosis__c',
- 'GHI_AgeAtDiagnosisRange__c',
-# 'GHI_PatientHadAPriorOncotypeTest__c',
- 'GHI_PatientGender__c',
- 'GHI_MultiTumor__c',
- 'GHI_Stage__c',
- 'GHI_NodeStatus__c',
- 'GHI_ERStatus__c',
- 'GHI_PRStatus__c',
- 'GHI_HormoneReceptorHR__c',
- 'GHI_HER2Status__c',
-# 'GHI_HER2mode__c',
- 'GHI_TumorSize__c',
-# 'GHI_TumorHistology__c',
- 'GHI_ProcedureType__c',
-# 'GHI_PostMenopausalWomen__c',
- 'GHI_MedOncOrder__c',
-# 'GHI_EvidenceOfDistantMetastaticBC__c',
-'GHI_MultiTumorTestExecution__c',
-'MP_PTC_Available',
-'CT_PTC_Available'
+'GHI_RecentlyNewlyDiagnosis__c', # not comparable 1
+'GHI_AgeAtDiagnosisRange__c',
+'GHI_PatientHadAPriorOncotypeTest__c',  # not comparable 2
+'GHI_PatientGender__c',  # data/mapping WIP 1
+'GHI_MultiTumor__c',
+'GHI_Stage__c',  # data/mapping WIP 2
+'GHI_NodeStatus__c',
+'GHI_ERStatus__c',
+'GHI_PRStatus__c',
+'GHI_HormoneReceptorHR__c',
+'GHI_HER2Status__c',
+'GHI_HER2mode__c', # not comparable 3
+'GHI_TumorSize__c', # data/mapping WIP 3
+'GHI_TumorHistology__c', # not comparable 4
+'GHI_ProcedureType__c',
+'GHI_PostMenopausalWomen__c', # not comparable 5
+'GHI_MedOncOrder__c',
+'GHI_EvidenceOfDistantMetastaticBC__c',  # not comparable 6
+'GHI_MultiTumorTestExecution__c',  # data/mapping WIP 4
+'Medical_Policy_Status1',
+'Contracted_Policy_Status1'
 ]
 
 PTC_Criteria = select_columns[4:-2]
@@ -180,9 +185,9 @@ Add a check to flag a blank PTC: all criteria and set to xx_PTC_Available = 'No'
 def flag_blank_PTC(record):
     if sum(record[PTC_Criteria].isnull()) == len(PTC_Criteria):
         if record.Policy == 'MP':
-            record['MP_PTC_Available'] = 'Blank PTC'
+            record['Medical_Policy_Status1'] = 'Blank PTC'
         else:
-            record['CT_PTC_Available'] = 'Blank PTC'
+            record['Contracted_Policy_Status1'] = 'Blank PTC'
     return(record)
 
 PTC = PTC.apply(lambda x: flag_blank_PTC(x), axis=1)
@@ -217,17 +222,18 @@ PTV_data.rename(columns = {'Name':'PTV'}, inplace=True)
 ########################################################
 ### something wrong with the merge, it has more rows after the merge
 ### there are duplicate OLI ID isn the OLI_Data
+print("Preparing IBC_OLI+PTC data")
 
 Data = pd.merge(OLI_data, MP_PTC_data, how='left', on = ['Tier4PayorID', 'Test'])
-#Data['MP_PTC_Available'] = 'Yes'
-Data.loc[Data.MP_PTC.isnull(),'MP_PTC_Available'] = 'No'
-Data['MP_PTC_Available'] = Data['MP_PTC_Available'].fillna('Yes')
+Data.loc[Data.MP_PTC.isnull(),'Medical_Policy_Status1'] = 'No PTC'
+Data['Medical_Policy_Status1'] = Data['Medical_Policy_Status1'].fillna('Yes PTC')
+Data['Medical_Policy_Status'] = Data['Medical_Policy_Status1'].map({'Blank PTC':'No policy', 'No PTC': 'No policy', 'Yes PTC':'Published policy'})
 
 
 Data = pd.merge(Data, CT_PTC_data, how='left', on = ['Tier4PayorID', 'Test'])
-#Data['CT_PTC_Available'] = 'Yes'
-Data.loc[Data.CT_PTC.isnull(),'CT_PTC_Available'] = 'No'
-Data['CT_PTC_Available'] = Data['CT_PTC_Available'].fillna('Yes')
+Data.loc[Data.CT_PTC.isnull(),'Contracted_Policy_Status1'] = 'No PTC'
+Data['Contracted_Policy_Status1'] = Data['Contracted_Policy_Status1'].fillna('Yes PTC')
+Data['Contracted_Policy_Status'] = Data['Contracted_Policy_Status1'].map({'Blank PTC':'No policy', 'No PTC': 'No policy', 'Yes PTC':'Contracted policy'})
 
 
 Data = pd.merge(Data, PTV_data, how='left', on = ['Tier4PayorID', 'Test'])
@@ -246,9 +252,9 @@ Data_for_Ops = Data[['OrderID', 'OLIID', 'Test', 'TestDeliveredDate', 'OrderStar
                'Tier2Payor', 'Tier2PayorName', 'Tier4PayorID', 'Tier4Payor',
                'Tier4PayorName', 'QDXInsPlanCode', 'FinancialCategory',
                
-               'MP_PTC', 'MP_Policy_Status',
-               'MP_PTC_Available', 'CT_PTC', 'CT_Policy_Status',
-               'CT_PTC_Available', 'PTV'
+               'MP_PTC', 'MP_Policy_Status', 'Medical_Policy_Status','Medical_Policy_Status1',
+               'CT_PTC', 'CT_Policy_Status', 'Contracted_Policy_Status', 'Contracted_Policy_Status1',
+               'PTV'
                ]].copy()
 
         #########################################
@@ -275,9 +281,12 @@ print("IBC_OLI+PTC data refresh done")
 # Current algorithm compare 10 of the 13 comparable clinical criteria
 # Not comparing: Gender, Tumor Size, Test Execution
 ####################################################################
+
+print("Calculate In vs Out criteria start")
+
 IBC_compare = {'PatientAgeAtDiagnosis' : 'MP_GHI_AgeAtDiagnosisRange__c',
                #GHI_Patient_Gender__c
-               'HCPProvidedClinicalStage' : 'MP_GHI_Stage__c',
+               #'HCPProvidedClinicalStage' : 'MP_GHI_Stage__c',
                'NodalStatus' : 'MP_GHI_NodeStatus__c',
                'SubmittedER' : 'MP_GHI_ERStatus__c',
                'SubmittedPR' : 'MP_GHI_PRStatus__c',
@@ -287,7 +296,6 @@ IBC_compare = {'PatientAgeAtDiagnosis' : 'MP_GHI_AgeAtDiagnosisRange__c',
                'ProcedureType' :  'MP_GHI_ProcedureType__c',
                'MedOnc_Order' : 'MP_GHI_MedOncOrder__c',
                #GHI_MultiTumorTestExecution__c
-               #'PreClaim_Failure' : 'PA_Required',
                'MultiplePrimaries' : 'MP_GHI_MultiTumor__c'
                 }  # arrange MultiplePrimaries to the last for the script
 
@@ -317,43 +325,50 @@ Data['PA_Required'] = Data['PA_Required'].fillna('.PTV unknown')
 def In_or_Out_1 (record):
     
     # kick it to 'OUT' if PTC is not available, either no PTC record or PTC is blank
-    if record.MP_PTC_Available != 'Yes':
+    if record.Medical_Policy_Status == 'No policy':
         record['MP_InCriteria'] = '..Out'
         for i in list(IBC_compare.keys()):
             comparing = IBC_compare[i][7:-3] + '_coverage'
+            comparing1 = IBC_compare[i][7:-3] + '_coverage1'
             record[comparing] = '..Out'
+            record[comparing1] = record['Medical_Policy_Status1']
         
         comparing = 'PA_requirement_coverage'
         if record['PreClaim_Failure'] == 'Failure':
             record[comparing] = '..Out'
         else: # blank and non failure
             record[comparing] = '.In'
-            
+        
+        record['OLI_InCriteria'] = '..Out'
+        
         return(record)
     
-    InCriteria_1_temp = [] 
+    MP_InCriteria_temp = [] 
     for i in list(IBC_compare.keys())[:-1]:  # exclude comparing Multiple Primaries 
         #print ('OLI: ', record[i], ' vs ', record[IBC_compare[i]])
         comparing = IBC_compare[i][7:-3] + '_coverage'
+        comparing1 = IBC_compare[i][7:-3] + '_coverage1'
         
         if (record[i] != '') and (record[i] != 'Unknown'):  # Patient clinical criteria is captured in OLI, then compare
             if (type(record[IBC_compare[i]]) == list):   # PTC clinical criteria is entered
                 record[comparing] = '.In' if (record[i] in record[IBC_compare[i]]) else '..Out'
-                InCriteria_1_temp.append((record[i] in record[IBC_compare[i]]))
+                MP_InCriteria_temp.append((record[i] in record[IBC_compare[i]]))
+                record[comparing1] = 'Meet criteria' if (record[i] in record[IBC_compare[i]]) else 'Out of criteria'
             else:                                        # PTC clinical criteria is blank
                 record[comparing] = '.In'
-                #record[comparing] = 'Unspecified policy' ### update the MP_Node__c
-                record[IBC_compare[i]] = 'Unspecified policy'
+                record[comparing1] = 'Unspecified criteria'
+                record[IBC_compare[i]] = 'Unspecified criteria'  ### update the MP_Node__c
                 # by pass when both patient & ptc have no information
                 
         else:                                            # Patient clinical criteria is unavailable
             if (type(record[IBC_compare[i]]) == list):   # PTC clinical criteria is entered
                 record[comparing] = '..Out'
-                InCriteria_1_temp.append(0)          # Patient clinical criteria is not captured in OLI, set to 'Out' as no information to compare
+                record[comparing1] = 'Indeterminable'
+                MP_InCriteria_temp.append(0)          # Patient clinical criteria is not captured in OLI, set to 'Out' as no information to compare
             else:
                 record[comparing] = '.In'
-                #record[comparing] = 'Patient unknown & Unspecified policy'   ## update the MP_GHI____c
-                record[IBC_compare[i]] = 'Unspecified policy'
+                record[comparing1] = 'Unspecified criteria'
+                record[IBC_compare[i]] = 'Unspecified criteria'   ## update the MP_GHI____c
                 # by pass when both patient & ptc have no information
 
     # evaluate multi tumor coverage, only evaluate OLI which multi tumor = Yes. All IBC OLIs either Yes or No multiple primaries
@@ -362,40 +377,20 @@ def In_or_Out_1 (record):
     # PTC multi tumor is blank when we do not know whether payor covers multi tumor
     # all payers cover OLI with multi tumor = No
     comparing = 'MultiTumor_coverage'
+    comparing1 = 'MultiTumor_coverage1'
     if record['MultiplePrimaries'] == 'Yes':
-        if (type(record[IBC_compare[i]]) == list):
-            InCriteria_1_temp.append((record['MultiplePrimaries'] in record['MP_GHI_MultiTumor__c']))
+        if (type(record['MP_GHI_MultiTumor__c']) == list):
+            MP_InCriteria_temp.append((record['MultiplePrimaries'] in record['MP_GHI_MultiTumor__c']))
             record[comparing] = '.In' if (record['MultiplePrimaries'] in record['MP_GHI_MultiTumor__c']) else '..Out'
+            record[comparing1] = 'Meet criteria' if (record['MultiplePrimaries'] in record['MP_GHI_MultiTumor__c']) else 'Out of criteria'
         else:
             record[comparing] = '.In'
-            #record[comparing] = 'Unspecified policy'
-            record['MultiplePrimaries'] = 'Unspecified policy'
+            record[comparing1] = 'Unspecified criteria'
+            record['MP_GHI_MultiTumor__c'] = 'Unspecified criteria'
     else: # OLI Multiple Primaries = No
         record[comparing] = '.In'
-    
-    
-    '''    
-    # compare PTV.OSM_PA_Required__c.unique() with PreClaim_Failure
-    # for PA_Required = True and PreClaim_Failure = 'Non Failure' then IN
-    # PA_Required = True and PreClaim_Failure = 'Failure' or = blank, then OUT
-    # for PA_Required = False, then does not matter what is PreClaim_Failure
-    comparing = 'PA_requirement_1'
-    
-    if record['PA_Required'] == 'No':
-        record[comparing] = 'In'
-        InCriteria_1_temp.append(1)
-    elif record['PA_Required'] == 'Yes': # Payer requires PA
-        record[comparing] = 'In' if (record['PreClaim_Failure'] == 'Non Failure') else 'Out'
-        InCriteria_1_temp.append(1 if (record['PreClaim_Failure'] == 'Non Failure') else 0)
-    else:
-        if record['PreClaim_Failure'] == 'Non Failure':
-            record[comparing] = 'In'
-            InCriteria_1_temp.append(1)
-        elif record['PreClaim_Failure'] == 'Failure':
-            record[comparing] = '.PTV unknown'
-        else:
-            record[comparing] = '.PA & PTV unknown'
-    '''
+        record[comparing1] = 'Meet criteria'
+        
     # Quadax PreClaim status precede GHI PA Required Flag
     # compare PTV.OSM_PA_Required__c.unique() with PreClaim_Failure
     # for PA_Required = True and PreClaim_Failure = 'Non Failure' then IN
@@ -403,26 +398,36 @@ def In_or_Out_1 (record):
     # for PA_Required = False, then does not matter what is PreClaim_Failure
     comparing = 'PA_requirement_coverage'
     
-    if record['PreClaim_Failure'] == 'Failure':
+    AV_InCriteria = []
+    if record['PreClaim_Failure'] in (['Failure', 'PA Denied']):
         record[comparing] = '..Out'
-        InCriteria_1_temp.append(0)
+        AV_InCriteria.append(0)
     else: # blank and non failure
         record[comparing] = '.In'
-        InCriteria_1_temp.append(1)
-       
-    
-    # len(InCriteria_1_temp) is 0 when the Plan has no PTC
+        AV_InCriteria.append(1)
+               
+    # Aggregate Medical Policy criteria
+    # len(MPInCriteria_1_temp) is 0 when the Plan has no PTC
     # 0 in InCriteria_1_temp)) when at least 1 of the criteria is out
-    record['MP_Criteria_considered'] = len(InCriteria_1_temp)
+    record['MP_Criteria_considered'] = len(MP_InCriteria_temp)
     
-    if ((len(InCriteria_1_temp) == 0) or (0 in InCriteria_1_temp)):
+    if ((len(MP_InCriteria_temp) == 0) or (0 in MP_InCriteria_temp)):
         record['MP_InCriteria'] = '..Out'
     else:
         record['MP_InCriteria'] = '.In'
+
+    # Aggregate Medical Policy and Administrative Validation
+    OLI_InCriteria_temp = MP_InCriteria_temp + AV_InCriteria
+    if ((len(OLI_InCriteria_temp) == 0) or (0 in OLI_InCriteria_temp)):
+        record['OLI_InCriteria'] = '..Out'
+    else:
+        record['OLI_InCriteria'] = '.In'
  
     return(record)
 
 Data = Data.apply(lambda x: In_or_Out_1(x), axis=1)
+
+print("Calculate In vs Out criteria done")
 
 ####################################################################
 # Calculate IN/OUT criteria            
@@ -446,7 +451,7 @@ Data = Data.apply(lambda x: In_or_Out_1(x), axis=1)
 def In_or_Out_2 (record):
 
     # kick it to 'OUT' if PTC is not available, either no PTC record or PTC is blank
-    if record.MP_PTC_Available != 'Yes':
+    if record.MP_Status != 'Yes':
         record['MP_InCriteria_2'] = '.Out'
         return(record)
     
@@ -516,6 +521,9 @@ def In_or_Out_2 (record):
 ###################################################################
 # Write the output
 ####################################################################
+print("Writing the result")
+
+
 for i in Payor_view.Set.unique() :
     #print (i)
     code = Payor_view[Payor_view.Set==i].PayorID
