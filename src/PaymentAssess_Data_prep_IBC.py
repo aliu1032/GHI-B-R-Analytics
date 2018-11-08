@@ -242,7 +242,7 @@ Data.loc[Data.PTV.isnull(),'PTV_Available'] = 'No'
 
 ####################################################################
 # 
-# extract data set to publish to B&R Tableau to support data clean
+# extract data set to publish to B&R Tableau to support data cleaning effort
 # Publish report in the GNAM Monthly Refresh
 #
 ####################################################################
@@ -304,7 +304,7 @@ for i in list(IBC_compare.keys()):
     Data[IBC_compare[i]] = Data[IBC_compare[i]].fillna("")
     Data[IBC_compare[i]] = Data[IBC_compare[i]].apply(lambda x : x.split(sep=";") if x else '')
 
-Data['PreClaim_Failure'] = Data['PreClaim_Failure'].fillna("NA") 
+Data['PreClaim_Failure'] = Data['PreClaim_Failure'].fillna("PA not required") 
 Data['PA_Required'] = Data['PA_Required'].fillna('.PTV unknown')
 
 ####################################################################
@@ -343,7 +343,7 @@ def In_or_Out_1 (record):
         
         return(record)
     
-    MP_InCriteria_temp = [] 
+    MP_InCriteria_list = [] 
     for i in list(IBC_compare.keys())[:-1]:  # exclude comparing Multiple Primaries 
         #print ('OLI: ', record[i], ' vs ', record[IBC_compare[i]])
         comparing = IBC_compare[i][7:-3] + '_coverage'
@@ -352,7 +352,7 @@ def In_or_Out_1 (record):
         if (record[i] != '') and (record[i] != 'Unknown'):  # Patient clinical criteria is captured in OLI, then compare
             if (type(record[IBC_compare[i]]) == list):   # PTC clinical criteria is entered
                 record[comparing] = '.In' if (record[i] in record[IBC_compare[i]]) else '..Out'
-                MP_InCriteria_temp.append((record[i] in record[IBC_compare[i]]))
+                MP_InCriteria_list.append((record[i] in record[IBC_compare[i]]))
                 record[comparing1] = 'Meet criteria' if (record[i] in record[IBC_compare[i]]) else 'Out of criteria'
             else:                                        # PTC clinical criteria is blank
                 record[comparing] = '.In'
@@ -364,7 +364,7 @@ def In_or_Out_1 (record):
             if (type(record[IBC_compare[i]]) == list):   # PTC clinical criteria is entered
                 record[comparing] = '..Out'
                 record[comparing1] = 'Indeterminable'
-                MP_InCriteria_temp.append(0)          # Patient clinical criteria is not captured in OLI, set to 'Out' as no information to compare
+                MP_InCriteria_list.append(0)          # Patient clinical criteria is not captured in OLI, set to 'Out' as no information to compare
             else:
                 record[comparing] = '.In'
                 record[comparing1] = 'Unspecified criteria'
@@ -380,7 +380,7 @@ def In_or_Out_1 (record):
     comparing1 = 'MultiTumor_coverage1'
     if record['MultiplePrimaries'] == 'Yes':
         if (type(record['MP_GHI_MultiTumor__c']) == list):
-            MP_InCriteria_temp.append((record['MultiplePrimaries'] in record['MP_GHI_MultiTumor__c']))
+            MP_InCriteria_list.append((record['MultiplePrimaries'] in record['MP_GHI_MultiTumor__c']))
             record[comparing] = '.In' if (record['MultiplePrimaries'] in record['MP_GHI_MultiTumor__c']) else '..Out'
             record[comparing1] = 'Meet criteria' if (record['MultiplePrimaries'] in record['MP_GHI_MultiTumor__c']) else 'Out of criteria'
         else:
@@ -409,15 +409,15 @@ def In_or_Out_1 (record):
     # Aggregate Medical Policy criteria
     # len(MPInCriteria_1_temp) is 0 when the Plan has no PTC
     # 0 in InCriteria_1_temp)) when at least 1 of the criteria is out
-    record['MP_Criteria_considered'] = len(MP_InCriteria_temp)
+    record['MP_Criteria_considered'] = len(MP_InCriteria_list)
     
-    if ((len(MP_InCriteria_temp) == 0) or (0 in MP_InCriteria_temp)):
+    if ((len(MP_InCriteria_list) == 0) or (0 in MP_InCriteria_list)):
         record['MP_InCriteria'] = '..Out'
     else:
         record['MP_InCriteria'] = '.In'
 
     # Aggregate Medical Policy and Administrative Validation
-    OLI_InCriteria_temp = MP_InCriteria_temp + AV_InCriteria
+    OLI_InCriteria_temp = MP_InCriteria_list + AV_InCriteria
     if ((len(OLI_InCriteria_temp) == 0) or (0 in OLI_InCriteria_temp)):
         record['OLI_InCriteria'] = '..Out'
     else:
